@@ -1,15 +1,12 @@
 import Image from "next/image";
 import logo from "../public/icons/upload.png";
+import Header from "./components/header";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
-        <div className="mb-8 flex items-center gap-4">
-          <h1 className="text-5xl font-extrabold tracking-tight">
-            AI Resume Analyzer
-          </h1>
-        </div>
+          <Header />
 
         <section className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
           <p className="mb-4 text-gray-700">
@@ -41,7 +38,7 @@ export default function Home() {
             </p>
 
             <div className="rounded-xl bg-gray-200 px-6 py-6">
-              <textarea name="" id="" className="text-sm text-gray-500">
+              <textarea className="text-sm text-gray-500">
                 Job Description
               </textarea>
             </div>
