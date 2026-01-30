@@ -50,11 +50,64 @@ export default function SuccessScore() {
         {/* {AI Resume Insights} */}
         <div>
           <h1 className="text-3xl font-bold mt-8 tracking-wide">🔎AI Resume Insights</h1>
+          <div className="mt-10">
+          {/* Section title */}
+            <h3 className="text-xl font-medium text-gray-900">
+              - What You’re Doing Well
+            </h3>
+
+            {/* Bullet list */}
+            <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
+              <li>Strong technical background in AI and Machine Learning</li>
+              <li>Hands-on experience with Python, TensorFlow, PyTorch, and Git</li>
+              <li>
+                Experience working on AI-driven projects, which is highly relevant to
+                this role
+              </li>
+            </ul>
+          </div>
+
+          <div className="mt-10">
+          {/* Section title */}
+            <h3 className="text-xl font-medium text-gray-900">
+              - Where Your Resume Falls Short
+            </h3>
+
+            {/* Bullet list */}
+            <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
+              <li>Strong technical background in AI and Machine Learning</li>
+              <li>Hands-on experience with Python, TensorFlow, PyTorch, and Git</li>
+              <li>
+                Experience working on AI-driven projects, which is highly relevant to
+                this role
+              </li>
+            </ul>
+          </div>
+
 
 
         </div>
       {/* {how to improve your resume for this role} */}
         <div>
+          <h1 className="text-3xl font-bold mt-8 tracking-wide">🔎How to Improve Your Resume for This Role </h1>
+
+          <div className="mt-10">
+          {/* Section title */}
+            <h3 className="text-xl font-medium text-gray-900">
+              - Recommended Improvements
+            </h3>
+
+            {/* Bullet list */}
+            <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
+              <li>Strong technical background in AI and Machine Learning</li>
+              <li>Hands-on experience with Python, TensorFlow, PyTorch, and Git</li>
+              <li>
+                Experience working on AI-driven projects, which is highly relevant to
+                this role
+              </li>
+            </ul>
+          </div>
+
 
         </div>
 
