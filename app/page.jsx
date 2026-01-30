@@ -38,8 +38,18 @@ export default function Home() {
             </p>
 
             <div className="rounded-xl bg-gray-200 px-6 py-6">
-              <textarea className="text-sm text-gray-500">
-                Job Description
+              <textarea
+              placeholder="Job Description"
+              className="
+                w-full
+                h-32
+                bg-transparent
+                text-sm
+                text-gray-500
+                placeholder-gray-500
+                outline-none
+                resize-none
+              ">
               </textarea>
             </div>
           </div>
