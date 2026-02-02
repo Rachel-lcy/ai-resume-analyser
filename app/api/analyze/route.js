@@ -13,6 +13,22 @@ import { NextResponse } from "next/server";
  * }
  */
 
+/**
+ * Phase 1: Real Upload Flow (MVP)
+ * POST /api/analyze
+ * Content-Type: multipart/form-data
+ *
+ * Fields:
+ * - resume: File (PDF)
+ * - jobDescription: string
+ * - simulate?: "success" | "fail" (optional)
+ * - delayMs?: number (optional)
+ *
+ * Return:
+ * - { ok: true, report: {...}, warning?: string | null }
+ */
+
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -21,6 +37,13 @@ function clampText(str = "", maxLen = 8000) {
   if (!str) return "";
   return str.length > maxLen ? str.slice(0, maxLen) : str;
 }
+
+/**
+ * Phase1 规则：
+ * - JD 必填
+ * - resume 文件必填（你前端也要求）
+ * - resumeText 暂不强制（Phase2 会从 PDF 解析出来再启用）
+ */
 
 function validateInput({ jobDescription, resumeText }) {
   const jd = (jobDescription || "").trim();
@@ -31,16 +54,16 @@ function validateInput({ jobDescription, resumeText }) {
     return { ok: false, message: "Job description is required." };
   }
 
-  // MVP：resumeText 先不强制（后面你做 PDF -> text 后可改成必填）
+  //  Phase1：不强制 resumeText（因为我们还没做 PDF->text）
   if (!rt) {
-    return { ok: true, warning: "Resume text is empty (MVP allowed)." };
+    return { ok: true, warning: "Resume text is empty (Phase1 allowed)." };
   }
 
   return { ok: true };
 }
 
 function buildMockReport({ resumeText, jobDescription }) {
-  // 做一点“看起来合理”的假分析逻辑
+
   const jdLower = (jobDescription || "").toLowerCase();
   const resumeLower = (resumeText || "").toLowerCase();
 
@@ -121,36 +144,101 @@ function buildMockReport({ resumeText, jobDescription }) {
 
 export async function POST(req) {
   try {
-    // 1) 读取请求体 JSON（如果不是 JSON 就给空对象）
-    const body = await req.json().catch(() => ({}));
+    // 1) 从 multipart/form-data 读取（phase1 的关键点）
+    const formData = await req.formData();
 
-    // 2) 允许前端控制“模拟成功/失败 + 延迟”
-    const simulate = body.simulate; // "success" | "fail" | undefined
-    const delayMs = Number.isFinite(body.delayMs) ? body.delayMs : 900;
+    //2) 读取字段： file + jd + simulate/delayMs(optional)
+    const file = formData.get("resume")
+    const jobDescriptionRaw = formData.get("jobDescription");
+    const simulateRaw = formData.get("simulate")
+    const delayMsRaw = formData.get(delayMs)
 
-    // 3) 读取输入，并做长度截断（避免未来接 LLM 时爆 token）
-    const resumeText = clampText(body.resumeText || "", 8000);
-    const jobDescription = clampText(body.jobDescription || "", 4000);
+    const jobDescription = clampText((jobDescriptionRaw || "").toString(), 4000);
 
-    // 4) 模拟“生成耗时”
-    await sleep(delayMs);
+    // simulate: "success" | "fail" | undefined
+    const simulate = (simulateRaw || "").toString() || undefined;
 
-    // 5) 输入校验（JD 必填，resumeText MVP 可选）
-    const validation = validateInput({ jobDescription, resumeText });
-    if (!validation.ok) {
+     // delayMs: number
+    const delayMsParsed = Number(delayMsRaw);
+    const delayMs = Number.isFinite(delayMsParsed) ? delayMsParsed : 900;
+
+    // 3) 校验：文件必须存在
+    if(!file){
       return NextResponse.json(
         {
           ok: false,
-          error: {
-            code: "VALIDATION_ERROR",
-            message: validation.message,
-          },
+          error: { code: "FILE_REQUIRED", message: "Resume PDF is required." },
         },
-        { status: 400 }
-      );
+        {status: 400}
+      )
     }
 
-    // 6) 决定这次是否失败（用于测试 fails 页面）
+     // 4) 校验：确保是 File 对象（防止传错）
+     if(typeof file === "string || !file.name"){
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_FILE", message: "Invalid file upload." },
+        },
+        { status: 400 }
+      )
+     }
+
+      // 5) 校验：必须 PDF（type 或扩展名）
+      const isPdf =
+        file.type === "application/pdf" || file.name.toLowerCase().endWith(".pdf")
+
+        if(!isPdf){
+          return NextResponse.json(
+            {
+              ok: false,
+              error: { code: "PDF_ONLY", message: "Please upload a PDF file." },
+            },
+            { status: 400 }
+          )
+        }
+
+      //6) 校验：大小限制（与前端一致）
+
+      const maxSizeMB = 10;
+        if (file.size > maxSizeMB * 1024 * 1024) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: {
+                code: "FILE_TOO_LARGE",
+                message: `File is too large. Please upload a PDF under ${maxSizeMB}MB.`,
+              },
+            },
+            { status: 400 }
+          );
+        }
+
+       // 7) Phase1：我们还不解析 PDF → resumeText 暂为空
+        // Phase2 你会在这里把 PDF 转成文本：resumeText = extractedText
+        const resumeText = "";
+
+        // 8) 模拟耗时
+        await sleep(delayMs);
+
+
+        // 9) 业务输入校验：JD 必填（你原逻辑保留）
+      const validation = validateInput({ jobDescription, resumeText });
+        if (!validation.ok) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: {
+                code: "VALIDATION_ERROR",
+                message: validation.message,
+              },
+            },
+            { status: 400 }
+          );
+        }
+
+
+    // 10) 决定这次是否失败
     const randomFail = Math.random() < 0.15; // 15% 随机失败
     const shouldFail =
       simulate === "fail" ? true : simulate === "success" ? false : randomFail;
@@ -169,7 +257,7 @@ export async function POST(req) {
       );
     }
 
-    // 7) 成功：生成 mock report 并返回
+    // 11) 成功：生成 report 并返回
     const report = buildMockReport({ resumeText, jobDescription });
 
     return NextResponse.json(
@@ -181,7 +269,7 @@ export async function POST(req) {
       { status: 200 }
     );
   } catch (err) {
-    // 8) 兜底：防止服务端异常把整个 API 打崩
+
     return NextResponse.json(
       {
         ok: false,
@@ -197,5 +285,5 @@ export async function POST(req) {
 
 // 可选：GET 用于快速探活（浏览器直接打开能看到）
 export async function GET() {
-  return NextResponse.json({ ok: true, service: "analyze-mock", version: "v1" });
+  return NextResponse.json({ ok: true, service: "analyze-mvp", version: "phase1" });
 }

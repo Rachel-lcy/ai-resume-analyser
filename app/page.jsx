@@ -9,6 +9,7 @@ import Header from "./components/header";
 export default function Home() {
   const router = useRouter();
 
+
   // 1) 状态：JD 输入 + 选中的文件 + loading + 本页校验/错误提示
   const [jobDescription, setJobDescription] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
@@ -24,11 +25,20 @@ export default function Home() {
     return selectedFile.name;
   }, [selectedFile]);
 
+  // const isFormValid = !!selectedFile && jobDescription.trim().length > 0;
+
   // 4) 点击 Browse Files：触发隐藏 input
   const handleBrowseClick = () => {
-    setFormError("");
-    fileInputRef.current?.click();
-  };
+  setFormError("");
+
+  // ✅ 严谨模式：用户每次点 Browse 都重新选，避免误用旧文件
+  setSelectedFile(null);
+
+  // ✅ 清空 input 的 value，保证选同一个文件也会触发 onChange
+  if (fileInputRef.current) fileInputRef.current.value = "";
+
+  fileInputRef.current?.click();
+};
 
   // 5) 选文件
   const handleFileChange = (e) => {
@@ -55,10 +65,11 @@ export default function Home() {
   };
 
   // 6) Analyze 核心逻辑：同页 loading → 调 API → 成功/失败跳转
+  console.log("selectedFile:", selectedFile);
   const handleAnalyze = async () => {
     setFormError("");
 
-    // ✅ 前端校验：JD 必填 + PDF 必填
+    // 前端校验：JD 必填 + PDF 必填
     if (!selectedFile) {
       setFormError("Please upload your resume PDF before analyzing.");
       return;
@@ -78,22 +89,26 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      // ⚠️ MVP：我们暂时不解析 PDF
-      // route.js 里 resumeText 是可选的，所以先传空字符串
-      // 后续你加“PDF -> text”后再传真实 resumeText
-      const payload = {
-        resumeText: "",
-        jobDescription: jobDescription,
-        // 你测试失败/成功可以用：
-        // simulate: "success",
-        // simulate: "fail",
-        delayMs: 900,
-      };
+      // Phase 1: 真实上传链路 - 用FromData
+      const formData = new FormData();
+      formData.append("resume", selectedFile);
+      formData.append("jobDescription", jobDescription);
+
+
+
+      // const payload = {
+      //   resumeText: "",
+      //   jobDescription: jobDescription,
+      //   // 你测试失败/成功可以用：
+      //   // simulate: "success",
+      //   // simulate: "fail",
+      //   delayMs: 900,
+      // };
 
       const res = await fetch("/api/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        // headers: { "Content-Type": "application/json" },
+        body: formData,
       });
 
       const data = await res.json().catch(() => null);
@@ -107,7 +122,7 @@ export default function Home() {
         return;
       }
 
-      // ✅ 成功：把 report 存起来，success 页面读取并展示
+      // 成功：把 report 存起来，success 页面读取并展示
       localStorage.setItem("ai_report", JSON.stringify(data.report));
 
       //（可选）也保存 JD、文件名，方便你 success 页显示上下文
@@ -136,7 +151,7 @@ export default function Home() {
           <Header />
 
         <section className="relative rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-          {/* Loading overlay（不跳转页面，直接显示加载） */}
+          {/* Loading overlay（不跳转页面，直接显示加载）  */}
           {isLoading && (
             <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur-sm">
               <div className="rounded-2xl border border-gray-200 bg-white px-8 py-6 shadow-sm">
@@ -175,7 +190,7 @@ export default function Home() {
                       </span>
 
                     ): (
-                      "PDF only • Recommended under 10MB "
+                      " - PDF only • Recommended under 10MB "
                     )
                   }
                   </p>
@@ -191,6 +206,7 @@ export default function Home() {
               >
                 Browse Files
               </button>
+
 
                {/* 隐藏 input */}
                <input
