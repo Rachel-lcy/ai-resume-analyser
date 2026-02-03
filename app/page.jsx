@@ -260,6 +260,7 @@ export default function Home() {
             className="mt-8 rounded-2xl border border-indigo-700 p-2.5 font-semibold text-indigo-900 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60">
             {isLoading? "Analyzing..." : "Analyze"}
           </button>
+
         </section>
       </div>
     </main>
