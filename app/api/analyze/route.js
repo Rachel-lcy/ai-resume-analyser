@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import {normalizeText} from "../analyze/normalize";
+import { SKILL_BANK } from "../analyze/skillBank";
+import { extractSkills } from "../analyze/extract";
+import { computeMatch } from "../analyze/score";
+import { buildReport } from "../analyze/report";
+
 
 export const runtime = "nodejs"; // Node 环境解析 PDF
 
@@ -11,13 +17,13 @@ function clampText(str = "", maxLen = 12000) {
   return str.length > maxLen ? str.slice(0, maxLen) : str;
 }
 
-function normalizeText(text = "") {
-  return text
-    .replace(/\r/g, "\n")
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
+// function normalizeText(text = "") {
+//   return text
+//     .replace(/\r/g, "\n")
+//     .replace(/[ \t]+/g, " ")
+//     .replace(/\n{3,}/g, "\n\n")
+//     .trim();
+// }
 
 function validateInput({ jobDescription, resumeText }) {
   const jd = (jobDescription || "").trim();
@@ -29,79 +35,177 @@ function validateInput({ jobDescription, resumeText }) {
   return { ok: true };
 }
 
-function buildMockReport({ resumeText, jobDescription }) {
-  const jdLower = (jobDescription || "").toLowerCase();
-  const resumeLower = (resumeText || "").toLowerCase();
+// Phase 4: Rule-based analysis
+// const SKILL_BANK = [
+//   // Cloud / AWS
+//   "AWS", "Cloud Computing","Lambda", "S3", "DynamoDB", "EC2", "CloudFront", "IAM",
+//   // Web
+//   "JavaScript", "TypeScript", "React", "Next.js", "Node.js", "Express",
+//   "HTML", "CSS", "Tailwind",
+//   // Data
+//   "SQL", "PostgreSQL", "MongoDB",
+//   // DevOps
+//   "CI/CD", "Docker", "GitHub Actions",
+//   // Security / Auth
+//   "JWT", "OAuth", "CSRF",
+//   // AI
+//   "Amazon Bedrock", "Generative AI","Amazon Q","Machine Learning","Amazon SageMaker",
+// ];
 
-  const skillPool = [
-    "AWS",
-    "Lambda",
-    "API Gateway",
-    "S3",
-    "DynamoDB",
-    "Next.js",
-    "React",
-    "Node.js",
-    "Python",
-    "SQL",
-    "CI/CD",
-    "Cloud Security",
-    "GenAI",
-  ];
+// function extractSkills(text = "", skillBank = []) {
+//   const lower = (text || "").toLowerCase();
+//   const found = [];
 
-  const matchedSkills = skillPool.filter(
-    (s) => jdLower.includes(s.toLowerCase()) && resumeLower.includes(s.toLowerCase())
-  );
+//   for (const skill of skillBank) {
+//     const s = skill.toLowerCase();
+//     if (lower.includes(s)) found.push(skill);
+//   }
+//   return Array.from(new Set(found));
+// }
 
-  const coreSkills = matchedSkills.length
-    ? matchedSkills.slice(0, 8)
-    : ["AWS", "Serverless", "Next.js", "React", "Python"];
+// function computeMatch(resumeSkills = [], jdSkills = []) {
+//   const resumeSet = new Set(resumeSkills);
 
-  const jobFitScore = Math.min(95, 60 + coreSkills.length * 5);
-  const resumeStrengthScore = Math.min(92, 55 + Math.floor(coreSkills.length * 4.5));
+//   const matched = jdSkills.filter((s) => resumeSet.has(s));
+//   const missing = jdSkills.filter((s) => !resumeSet.has(s));
 
-  return {
-    meta: {
-      reportId: `rpt_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      model: "mock-v2-pdfjs-text",
-    },
-    scores: {
-      jobMatchScore: jobFitScore,
-      resumeStrengthScore: resumeStrengthScore,
-    },
-    insights: {
-      doingWell: [
-        "Clear project-based experience demonstrating practical skills",
-        "Good alignment with cloud-native patterns",
-        "Readable structure with consistent section headings",
-      ],
-      fallsShort: [
-        "Missing measurable impact (numbers / outcomes) in some bullet points",
-        "Some key skills from the job description are not explicitly mentioned",
-        "Add a short summary tailored to the target role",
-      ],
-    },
-    improvements: {
-      recommended: [
-        "Add 2–3 quantified achievements (e.g., reduced time by X%, improved performance by Y%)",
-        "Include missing keywords from the job description naturally in experience bullets",
-        "Create a dedicated ‘Cloud & AI Projects’ section with 2–3 highlights",
-      ],
-    },
-    interviewQuestions: [
-      "Walk me through the architecture of your most recent project.",
-      "How would you handle retries, rate limits, and failures in an AI-powered workflow?",
-      "How do you evaluate whether an AI feature is actually helping users?",
-    ],
-    debug: {
-      resumeTextLength: resumeText.length,
-      jobDescriptionLength: jobDescription.length,
-      matchedSkills,
-      resumePreview: resumeText.slice(0, 300),
-    },
-  };
-}
+//   const coverage = jdSkills.length ? matched.length / jdSkills.length : 0;
+
+//   // 简单可解释的评分：覆盖率越高，匹配分越高
+//   const jobMatchScore = Math.round(50 + coverage * 50); // 50-100
+//   const resumeStrengthScore = Math.round(55 + Math.min(resumeSkills.length, 20) * 2); // 上限 95
+
+//   return {
+//     matched,
+//     missing,
+//     coverage: Number(coverage.toFixed(2)),
+//     scores: {
+//       jobMatchScore: Math.min(jobMatchScore, 100),
+//       resumeStrengthScore: Math.min(resumeStrengthScore, 100),
+//     },
+//   };
+// }
+
+// function buildReport({ resumeText, jobDescription, resumeSkills, jdSkills, match }) {
+//   const gapSuggestions = match.missing.slice(0, 6).map((s) => {
+//     return `Add evidence of ${s} experience in your project bullets (tools, outcomes, metrics).`;
+//   });
+
+//   return {
+//     meta: {
+//       reportId: `rpt_${Date.now()}`,
+//       createdAt: new Date().toISOString(),
+//       model: "phase4-rule-based-v1",
+//     },
+//     scores: match.scores,
+//     skills: {
+//       resumeSkills,
+//       jdSkills,
+//       matchedSkills: match.matched,
+//       missingSkills: match.missing,
+//       coverage: match.coverage,
+//     },
+//     insights: {
+//       doingWell: [
+//         "Resume contains relevant technical keywords for this role.",
+//         "The structure is parseable and suitable for automated analysis.",
+//       ],
+//       fallsShort: match.missing.length
+//         ? ["Some key skills from the job description are missing from the resume text."]
+//         : ["No major skill gaps detected from the current skill bank."],
+//     },
+//     improvements: {
+//       recommended: gapSuggestions.length
+//         ? gapSuggestions
+//         : ["Add 2–3 quantified achievements (impact metrics) to strengthen credibility."],
+//     },
+//     interviewQuestions: [
+//       "Walk me through a recent project that best matches this job description.",
+//       "How do you debug failures in a production web application?",
+//       "What trade-offs did you make when choosing your architecture or tech stack?",
+//     ],
+//     debug: {
+//       resumeTextLength: resumeText.length,
+//       jobDescriptionLength: jobDescription.length,
+//       resumePreview: resumeText.slice(0, 300),
+//       jdPreview: jobDescription.slice(0, 300),
+//     },
+//   };
+// }
+
+// function buildMockReport({ resumeText, jobDescription }) {
+//   const jdLower = (jobDescription || "").toLowerCase();
+//   const resumeLower = (resumeText || "").toLowerCase();
+
+//   const skillPool = [
+//     "AWS",
+//     "Lambda",
+//     "API Gateway",
+//     "S3",
+//     "DynamoDB",
+//     "Next.js",
+//     "React",
+//     "Node.js",
+//     "Python",
+//     "SQL",
+//     "CI/CD",
+//     "Cloud Security",
+//     "GenAI",
+//   ];
+
+//   const matchedSkills = skillPool.filter(
+//     (s) => jdLower.includes(s.toLowerCase()) && resumeLower.includes(s.toLowerCase())
+//   );
+
+//   const coreSkills = matchedSkills.length
+//     ? matchedSkills.slice(0, 8)
+//     : ["AWS", "Serverless", "Next.js", "React", "Python"];
+
+//   const jobFitScore = Math.min(95, 60 + coreSkills.length * 5);
+//   const resumeStrengthScore = Math.min(92, 55 + Math.floor(coreSkills.length * 4.5));
+
+//   return {
+//     meta: {
+//       reportId: `rpt_${Date.now()}`,
+//       createdAt: new Date().toISOString(),
+//       model: "mock-v2-pdfjs-text",
+//     },
+//     scores: {
+//       jobMatchScore: jobFitScore,
+//       resumeStrengthScore: resumeStrengthScore,
+//     },
+//     insights: {
+//       doingWell: [
+//         "Clear project-based experience demonstrating practical skills",
+//         "Good alignment with cloud-native patterns",
+//         "Readable structure with consistent section headings",
+//       ],
+//       fallsShort: [
+//         "Missing measurable impact (numbers / outcomes) in some bullet points",
+//         "Some key skills from the job description are not explicitly mentioned",
+//         "Add a short summary tailored to the target role",
+//       ],
+//     },
+//     improvements: {
+//       recommended: [
+//         "Add 2–3 quantified achievements (e.g., reduced time by X%, improved performance by Y%)",
+//         "Include missing keywords from the job description naturally in experience bullets",
+//         "Create a dedicated ‘Cloud & AI Projects’ section with 2–3 highlights",
+//       ],
+//     },
+//     interviewQuestions: [
+//       "Walk me through the architecture of your most recent project.",
+//       "How would you handle retries, rate limits, and failures in an AI-powered workflow?",
+//       "How do you evaluate whether an AI feature is actually helping users?",
+//     ],
+//     debug: {
+//       resumeTextLength: resumeText.length,
+//       jobDescriptionLength: jobDescription.length,
+//       matchedSkills,
+//       resumePreview: resumeText.slice(0, 300),
+//     },
+//   };
+// }
 
 // legacy pdfjs 抽文本：Node 环境必须用 legacy + 指定 workerSrc
 async function extractTextFromPdfArrayBuffer(pdfjsLib, arrayBuffer) {
@@ -241,8 +345,20 @@ export async function POST(req) {
       );
     }
 
-    // 6) 成功返回 report
-    const report = buildMockReport({ resumeText, jobDescription });
+    // 6)Phase 4 Analyze
+    const resumeSkills = extractSkills(resumeText,SKILL_BANK);
+    const jdSkills = extractSkills(jobDescription,SKILL_BANK);
+    const match = computeMatch(resumeSkills,jdSkills)
+
+
+    const report = buildReport({
+      resumeText,
+      jobDescription,
+      resumeSkills,
+      jdSkills,
+      match,
+     });
+
     return NextResponse.json({ ok: true, report }, { status: 200 });
   } catch (err) {
     console.error("POST /api/analyze unexpected error:", err);
@@ -261,5 +377,8 @@ export async function POST(req) {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, service: "analyze-mvp", version: "phase2-pdfjs" });
+  return NextResponse.json({
+    ok: true,
+    service: "analyze-mvp",
+    version: "phase4-rule-based-v1" });
 }
