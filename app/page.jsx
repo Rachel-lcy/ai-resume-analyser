@@ -9,51 +9,47 @@ import Header from "./components/header";
 export default function Home() {
   const router = useRouter();
 
-
-  // 1) 状态：JD 输入 + 选中的文件 + loading + 本页校验/错误提示
+  // 状态
   const [jobDescription, setJobDescription] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState("");
 
-  // 2) file input 隐藏起来，用按钮触发点击
+  // file input
   const fileInputRef = useRef(null);
 
-  // 3) 展示用：文件名
   const fileName = useMemo(() => {
     if (!selectedFile) return "";
     return selectedFile.name;
   }, [selectedFile]);
 
-  // const isFormValid = !!selectedFile && jobDescription.trim().length > 0;
-
-  // 4) 点击 Browse Files：触发隐藏 input
+  // 点击 Browse Files
   const handleBrowseClick = () => {
-  setFormError("");
+    setFormError("");
 
-  // ✅ 严谨模式：用户每次点 Browse 都重新选，避免误用旧文件
-  setSelectedFile(null);
+    // 每次重新选择，避免误用旧文件
+    setSelectedFile(null);
 
-  // ✅ 清空 input 的 value，保证选同一个文件也会触发 onChange
-  if (fileInputRef.current) fileInputRef.current.value = "";
+    // 清空 input value，允许重复选择同一个文件也触发 onChange
+    if (fileInputRef.current) fileInputRef.current.value = "";
 
-  fileInputRef.current?.click();
-};
+    fileInputRef.current?.click();
+  };
 
-  // 5) 选文件
+  // 选文件
   const handleFileChange = (e) => {
     setFormError("");
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // MVP：先只允许 PDF（更像真实产品）
+    // 只允许 PDF
     if (file.type !== "application/pdf") {
       setSelectedFile(null);
       setFormError("Please upload a PDF file.");
       return;
     }
 
-    // MVP：为了 demo 不要太大（避免浏览器卡）
+    // 限制大小 10MB
     const maxSizeMB = 10;
     if (file.size > maxSizeMB * 1024 * 1024) {
       setSelectedFile(null);
@@ -64,12 +60,11 @@ export default function Home() {
     setSelectedFile(file);
   };
 
-  // 6) Analyze 核心逻辑：同页 loading → 调 API → 成功/失败跳转
-  console.log("selectedFile:", selectedFile);
+  // Analyze
   const handleAnalyze = async () => {
     setFormError("");
 
-    // 前端校验：JD 必填 + PDF 必填
+    // 前端校验
     if (!selectedFile) {
       setFormError("Please upload your resume PDF before analyzing.");
       return;
@@ -79,79 +74,63 @@ export default function Home() {
       return;
     }
 
-    // MVP 允许不上传文件：先把 data flow 跑通
-    // 如果你想强制上传 PDF，把下面注释打开即可：
-    // if (!selectedFile) {
-    //   setFormError("Please upload your resume PDF before analyzing.");
-    //   return;
-    // }
-
     setIsLoading(true);
 
     try {
-      // Phase 1: 真实上传链路 - 用FromData
+      // 真实上传链路 - FormData
       const formData = new FormData();
       formData.append("resume", selectedFile);
       formData.append("jobDescription", jobDescription);
-
-
-
-      // const payload = {
-      //   resumeText: "",
-      //   jobDescription: jobDescription,
-      //   // 你测试失败/成功可以用：
-      //   // simulate: "success",
-      //   // simulate: "fail",
-      //   delayMs: 900,
-      // };
+      // formData.append("simulate", "success");
+      // formData.append("simulate", "fail");
+      // formData.append("delayMs", "900");
 
       const res = await fetch("/api/analyze", {
         method: "POST",
-        // headers: { "Content-Type": "application/json" },
         body: formData,
       });
 
       const data = await res.json().catch(() => null);
 
+      // 失败：把错误信息存起来，跳 fails 页面
       if (!res.ok || !data || data.ok !== true) {
         const msg =
           data?.error?.message ||
           "We couldn't analyze your resume right now. Please try again.";
-        localStorage.setItem("ai_error", msg);
+
+        sessionStorage.setItem("ai_error", msg);
         router.push("/fails-score");
         return;
       }
 
-      // 成功：把 report 存起来，success 页面读取并展示
-      localStorage.setItem("ai_report", JSON.stringify(data.report));
+      // Phase 4 正确做法：把 report 存到 sessionStorage，success 页读取
+      sessionStorage.setItem("ai_resume_report", JSON.stringify(data.report));
 
-      //（可选）也保存 JD、文件名，方便你 success 页显示上下文
-      localStorage.setItem("ai_jd", jobDescription);
-      localStorage.setItem("ai_fileName", fileName || "");
+      //也保存 JD、文件名
+      sessionStorage.setItem("ai_jd", jobDescription);
+      sessionStorage.setItem("ai_fileName", fileName || "");
 
+      // 成功跳转
       router.push("/success-score");
     } catch (err) {
       // 网络/未知错误
-      localStorage.setItem(
+      sessionStorage.setItem(
         "ai_error",
         "Network error. Please check your connection and try again."
       );
       router.push("/fails-score");
     } finally {
-      // 注意：跳转后组件会卸载，finally 不一定执行完也没事
       setIsLoading(false);
     }
   };
 
-
-
   return (
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
-          <Header />
+        <Header />
 
         <section className="relative rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-          {/* Loading overlay（不跳转页面，直接显示加载）  */}
+          {/* Loading overlay */}
           {isLoading && (
             <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur-sm">
               <div className="rounded-2xl border border-gray-200 bg-white px-8 py-6 shadow-sm">
@@ -162,15 +141,13 @@ export default function Home() {
                   </p>
                 </div>
                 <p className="mt-2 text-xs text-gray-500">
-                  This is a demo. Results are generated by the mock API.
+                  Results are generated by the analysis API.
                 </p>
               </div>
             </div>
           )}
 
-          <p className="mb-4 text-gray-700">
-            Upload your Resume/CV in PDF format
-          </p>
+          <p className="mb-4 text-gray-700">Upload your Resume/CV in PDF format</p>
 
           <div className="rounded-xl bg-gray-200 px-6 py-6">
             <div className="flex items-center justify-between gap-6">
@@ -181,44 +158,42 @@ export default function Home() {
                   <h3 className="text-sm font-semibold text-gray-900">
                     Drag and Drop your file here
                   </h3>
-                   {/*  文件名显示 + 限制说明 */}
-                  <p className="text-xs text-gray-600">Limit 20MB per file
-                    {
-                    fileName ? (
-                      <span>
-                        Selected: <span className="font-medium">{fileName}</span>
-                      </span>
 
-                    ): (
-                      " - PDF only • Recommended under 10MB "
-                    )
-                  }
+                  <p className="text-xs text-gray-600">
+                    {fileName ? (
+                      <>
+                        Selected:{" "}
+                        <span className="font-medium text-gray-900">{fileName}</span>
+                      </>
+                    ) : (
+                      "PDF only • Recommended under 10MB"
+                    )}
                   </p>
                 </div>
               </div>
 
-            {/* Browse 按钮触发 hidden input */}
+              {/* Browse */}
               <button
-              className="shrink-0 rounded-xl bg-gray-800 px-5 py-2 text-sm font-semibold text-white hover:bg-black"
-              type= "button"
-              onClick={handleBrowseClick}
-              disabled={isLoading}
+                className="shrink-0 rounded-xl bg-gray-800 px-5 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-60"
+                type="button"
+                onClick={handleBrowseClick}
+                disabled={isLoading}
               >
                 Browse Files
               </button>
 
-
-               {/* 隐藏 input */}
-               <input
+              {/* Hidden input */}
+              <input
                 ref={fileInputRef}
                 type="file"
                 accept="application/pdf"
                 onChange={handleFileChange}
                 className="hidden"
-               />
+              />
             </div>
           </div>
 
+          {/* JD */}
           <div>
             <p className="mb-4 text-gray-700 mt-7">
               Enter the Job Description of the role you are applying for:
@@ -227,40 +202,42 @@ export default function Home() {
             <div className="rounded-xl bg-gray-200 px-6 py-6">
               <textarea
                 value={jobDescription}
-                onChange = {(e) => {
+                onChange={(e) => {
                   setJobDescription(e.target.value);
-                  setFormError("")
+                  setFormError("");
                 }}
-                disabled ={isLoading}
-
+                disabled={isLoading}
                 placeholder="Job Description"
                 className="
                   w-full
                   h-32
                   bg-transparent
                   text-sm
-                  text-gray-500
+                  text-gray-700
                   placeholder-gray-500
                   outline-none
                   resize-none
-              ">
-              </textarea>
+                "
+              />
             </div>
           </div>
+
+          {/* Error */}
           {formError && (
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {formError}
             </div>
           )}
 
+          {/* Analyze button */}
           <button
             type="button"
             onClick={handleAnalyze}
-            disabled ={isLoading}
-            className="mt-8 rounded-2xl border border-indigo-700 p-2.5 font-semibold text-indigo-900 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60">
-            {isLoading? "Analyzing..." : "Analyze"}
+            disabled={isLoading}
+            className="mt-8 rounded-2xl border border-indigo-700 px-5 py-2.5 font-semibold text-indigo-900 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isLoading ? "Analyzing..." : "Analyze"}
           </button>
-
         </section>
       </div>
     </main>
