@@ -16,7 +16,7 @@ export function buildReport({resumeText, jobDescription, resumeSkills, jdSkills,
     insights:{
       doingWell:[
          "Resume contains relevant technical keywords for this role.",
-        "Skill coverage indicates partial alignment with the job requirements.",
+          "Skill coverage indicates partial alignment with the job requirements.",
       ],
       fallsShort: match.missing.length
       ? ["Some key skills from the job description are missing from the resume."]

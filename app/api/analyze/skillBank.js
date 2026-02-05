@@ -12,4 +12,6 @@ export const SKILL_BANK = [
   "JWT", "OAuth", "CSRF",
   // AI
   "Amazon Bedrock", "Generative AI","Amazon Q","Machine Learning","Amazon SageMaker",
+  // UI & UX
+  "Ux Designer","Graphic Designer","UI/UX Developer","Product Manager"
 ];
