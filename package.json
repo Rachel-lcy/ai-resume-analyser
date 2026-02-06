@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.984.0",
     "@napi-rs/canvas": "^0.1.89",
     "next": "16.1.6",
     "pdfjs-dist": "^5.4.624",
