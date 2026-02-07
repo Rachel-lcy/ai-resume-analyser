@@ -15,7 +15,7 @@ function safeParseJSON(str) {
 
 function toPercent(value) {
   // 如果 value 已经是 0-100 的整数，就直接加 %
-  // 如果你未来改成 0-1 的小数，也能兼容
+  // 未来改成 0-1 的小数，也能兼容
   if (typeof value !== "number") return "";
   if (value <= 1) return `${Math.round(value * 100)}%`;
   return `${Math.round(value)}%`;
@@ -25,8 +25,10 @@ export default function SuccessScore() {
   const [status, setStatus] = useState("loading"); // loading | ready | empty | error
   const [report, setReport] = useState(null);
 
+  const [meta, setMeta] =useState(null);
+
   useEffect(() => {
-    // 约定：上传页/分析页把 report 存到 sessionStorage: "ai_resume_report"
+    // 上传页/分析页把 report 存到 sessionStorage: "ai_resume_report"
     const raw = sessionStorage.getItem("ai_resume_report");
     if (!raw) {
       setStatus("empty");
@@ -41,7 +43,14 @@ export default function SuccessScore() {
 
     setReport(parsed);
     setStatus("ready");
+
+    const rawMeta = sessionStorage.getItem("ai-resume-meta");
+    const parsedMeta = rawMeta? safeParseJSON(rawMeta) : null;
+    setMeta(parsedMeta);
+
+    setStatus("ready")
   }, []);
+
 
   const jobMatch = report?.scores?.jobMatchScore ?? null;
   const strength = report?.scores?.resumeStrengthScore ?? null;
@@ -82,8 +91,12 @@ export default function SuccessScore() {
     //先下载
     a.click();
     //再释放内存
-    URL.revokeObjectURL(url)
+    URL.revokeObjectURL(url);
 
+    //Dev-only：只在本地开发时显示（Vercel 生产环境不显示）
+    const showDevDebug =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
   };
 
   return (

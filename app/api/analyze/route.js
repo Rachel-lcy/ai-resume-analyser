@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import {
+  BedrockRuntimeClient,
+  ConverseCommand,
+} from "@aws-sdk/client-bedrock-runtime";
 
 import { normalizeText } from "../analyze/normalize";
 import { SKILL_BANK } from "../analyze/skillBank";
@@ -13,12 +16,10 @@ export const runtime = "nodejs";
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
 function clampText(str = "", maxLen = 12000) {
   if (!str) return "";
   return str.length > maxLen ? str.slice(0, maxLen) : str;
 }
-
 function validateInput({ jobDescription, resumeText }) {
   const jd = (jobDescription || "").trim();
   const rt = (resumeText || "").trim();
@@ -26,7 +27,6 @@ function validateInput({ jobDescription, resumeText }) {
   if (!rt) return { ok: false, message: "Unable to extract text from the PDF." };
   return { ok: true };
 }
-
 function extractJsonFromText(text = "") {
   if (typeof text !== "string") return null;
   const first = text.indexOf("{");
@@ -58,6 +58,16 @@ async function extractTextFromPdfArrayBuffer(pdfjsLib, arrayBuffer) {
 }
 
 /* ---------------- Bedrock ---------------- */
+const REGION = (process.env.AWS_REGION || "us-east-1").trim();
+const MODEL_ID = (process.env.BEDROCK_MODEL_ID ||
+  "anthropic.claude-3-haiku-20240307-v1:0").trim();
+
+const bedrock = new BedrockRuntimeClient({
+  region: REGION,
+  // 在本地用 IAM access key 时，SDK 会自动从 env 里读：
+  // AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+});
+
 function buildAiPrompt({ report, resumeText, jobDescription }) {
   const resumeSummary = clampText(resumeText, 1400);
   const jdSummary = clampText(jobDescription, 1100);
@@ -94,40 +104,31 @@ missingSkills: ${JSON.stringify(missing)}
 }
 
 async function callHaikuAndGetJson({ report, resumeText, jobDescription }) {
-  const region = (process.env.AWS_REGION || "us-east-1").trim();
-  const modelId = (process.env.BEDROCK_MODEL_ID || "anthropic.claude-3-haiku-20240307-v1:0").trim();
 
-  // 🔎 排查用：看看你到底读到了什么
-  console.log("[bedrock] region =", JSON.stringify(region));
-  console.log("[bedrock] modelId =", JSON.stringify(modelId));
-
-  const bedrock = new BedrockRuntimeClient({
-    region: process.env.AWS_REGION || "us-east-1", });
+  console.log("[bedrock] region =", JSON.stringify(REGION));
+  console.log("[bedrock] modelId =", JSON.stringify(MODEL_ID));
 
   const prompt = buildAiPrompt({ report, resumeText, jobDescription });
 
   const cmd = new ConverseCommand({
-    modelId,
+    modelId: MODEL_ID,
     messages: [{ role: "user", content: [{ text: prompt }] }],
     inferenceConfig: {
-      maxTokens: 700,
+      maxTokens: 650,
       temperature: 0.3,
       topP: 0.9,
     },
   });
 
   const resp = await bedrock.send(cmd);
-  console.log("[bedrock] success");
+  console.log("[bedrock] call ok");
 
   const content = resp?.output?.message?.content ?? [];
-  const text =
-    content.find((c) => typeof c?.text === "string")?.text ?? "";
+  const text = content.find((c) => typeof c?.text === "string")?.text ?? "";
 
-  // 先尝试直接 JSON.parse
   try {
     return JSON.parse(text);
   } catch {
-    // 再尝试从混杂输出里挖 JSON
     const extracted = extractJsonFromText(text);
     if (extracted) return extracted;
     throw new Error("Bedrock returned non-JSON output.");
@@ -197,7 +198,8 @@ export async function POST(req) {
         { status: 400 }
       );
     }
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     if (!isPdf) {
       return NextResponse.json(
         { ok: false, error: { code: "PDF_ONLY", message: "Please upload a PDF file." } },
@@ -237,7 +239,13 @@ export async function POST(req) {
     const shouldFail = simulate === "fail" ? true : simulate === "success" ? false : false;
     if (shouldFail) {
       return NextResponse.json(
-        { ok: false, error: { code: "ANALYSIS_FAILED", message: "We couldn't analyze your resume at this time. Please try again." } },
+        {
+          ok: false,
+          error: {
+            code: "ANALYSIS_FAILED",
+            message: "We couldn't analyze your resume at this time. Please try again.",
+          },
+        },
         { status: 500 }
       );
     }
@@ -272,18 +280,11 @@ export async function POST(req) {
       aiStatus = "failed";
       aiError = String(e?.message || e);
       console.log("[bedrock] failed:", aiError);
-      finalReport = phase4Report; // AI 失败也不影响主流程
+      finalReport = phase4Report;
     }
 
     return NextResponse.json(
-      {
-        ok: true,
-        report: finalReport,
-        meta: {
-          aiStatus,
-          aiError,
-        },
-      },
+      { ok: true, report: finalReport, meta: { aiStatus, aiError, region: REGION, modelId: MODEL_ID } },
       { status: 200 }
     );
   } catch (err) {
@@ -306,5 +307,7 @@ export async function GET() {
     ok: true,
     service: "analyze-mvp",
     version: "phase5-bedrock-haiku+phase4",
+    region: REGION,
+    modelId: MODEL_ID,
   });
 }
