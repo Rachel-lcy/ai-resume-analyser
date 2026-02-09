@@ -30,6 +30,7 @@ export default function SuccessScore() {
   useEffect(() => {
     // 上传页/分析页把 report 存到 sessionStorage: "ai_resume_report"
     const raw = sessionStorage.getItem("ai_resume_report");
+    const metaRaw = sessionStorage.getItem("ai_resume_meta")
     if (!raw) {
       setStatus("empty");
       return;
@@ -42,11 +43,13 @@ export default function SuccessScore() {
     }
 
     setReport(parsed);
-    setStatus("ready");
 
-    const rawMeta = sessionStorage.getItem("ai-resume-meta");
-    const parsedMeta = rawMeta? safeParseJSON(rawMeta) : null;
+    const parsedMeta = metaRaw? safeParseJSON(metaRaw) : null;
     setMeta(parsedMeta);
+
+    console.log("metaRaw:", metaRaw);
+    console.log("meta:", parsedMeta);
+
 
     setStatus("ready")
   }, []);
@@ -102,12 +105,12 @@ export default function SuccessScore() {
   return (
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
-        <Header />
+        <Header meta={meta}/>
 
         {/* Top banner */}
         <div className="rounded-lg bg-indigo-800 px-8 py-6 text-base font-semibold text-white">
-          {status === "loading" && <p>Generating score…</p>}
-          {status === "ready" && <p>Score generated successfully!</p>}
+          {status === "loading" && <p>Generating AI insights…</p>}
+          {status === "ready" && <p>AI insights generated successfully!</p>}
           {status === "empty" && <p>No report found. Please upload a resume first.</p>}
           {status === "error" && <p>Report data is corrupted. Please try again.</p>}
         </div>
@@ -168,7 +171,7 @@ export default function SuccessScore() {
                     Resume Strength Score:
                   </h2>
                   <p className="mt-2 text-sm text-gray-600">
-                    How strong your resume is based on analysis
+                    How strong your resume is based on AI analysis
                   </p>
                 </div>
 

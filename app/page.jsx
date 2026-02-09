@@ -103,8 +103,9 @@ export default function Home() {
         return;
       }
 
-      // Phase 4 正确做法：把 report 存到 sessionStorage，success 页读取
+      // Phase 4 正确做法：把 report and meta 存到 sessionStorage，success 页读取
       sessionStorage.setItem("ai_resume_report", JSON.stringify(data.report));
+      sessionStorage.setItem("ai_resume_meta", JSON.stringify(data.meta));
 
       //也保存 JD、文件名
       sessionStorage.setItem("ai_jd", jobDescription);
@@ -128,6 +129,7 @@ export default function Home() {
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
         <Header />
+
 
         <section className="relative rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
           {/* Loading overlay */}
