@@ -13,6 +13,7 @@
     "@napi-rs/canvas": "^0.1.89",
     "next": "16.1.6",
     "pdfjs-dist": "^5.4.624",
+    "pdfkit": "^0.17.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
