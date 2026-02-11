@@ -1,515 +1,392 @@
+// app/api/report/pdf/route.js
+
 import PDFDocument from "pdfkit";
-import path from "path";
 import fs from "fs";
+import path from "path";
 
 export const runtime = "nodejs";
 
-/**
- * POST /api/report/pdf
- * Body: { report, meta, jobDescription, fileName }
- */
-export async function POST(req) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const report = body?.report || {};
-    const meta = body?.meta || {};
-    const jobDescription = (body?.jobDescription || "").toString();
-    const fileName = (body?.fileName || "").toString();
+/** ---------------------------
+ * Helpers
+ * -------------------------- */
+function safeArray(x) {
+  return Array.isArray(x) ? x : [];
+}
+function pickTop(arr, n = 10) {
+  return safeArray(arr).slice(0, n);
+}
+function clampText(str = "", max = 160) {
+  const s = String(str ?? "");
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+function pct(value) {
+  if (typeof value !== "number") return "--";
+  if (value <= 1) return String(Math.round(value * 100)) + "%";
+  return String(Math.round(value)) + "%";
+}
 
-    // ---------- Fonts (Inter) ----------
-    const fontDir = path.join(process.cwd(), "app", "assets", "fonts");
-    const fontRegular = path.join(fontDir, "Inter-Regular.ttf");
-    const fontSemiBold = path.join(fontDir, "Inter-SemiBold.ttf");
-    const fontBold = path.join(fontDir, "Inter-Bold.ttf");
+function resolveFontPath(rel) {
+  const candidates = [
+    path.join(process.cwd(), "app", rel),
+    path.join(process.cwd(), rel),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return candidates[0];
+}
 
+function readFontBuffer(relPath) {
+  const p = resolveFontPath(relPath);
+  if (!fs.existsSync(p)) throw new Error("Font file not found: " + p);
+  return fs.readFileSync(p);
+}
 
-    [fontRegular, fontSemiBold, fontBold].forEach((p) => {
-      if (!fs.existsSync(p)) {
-        throw new Error(`Font file missing: ${p}`);
-      }
-    });
-
-    // ---------- PDF base ----------
-    const doc = new PDFDocument({
-      size: "A4",
-      margins: { top: 44, bottom: 44, left: 44, right: 44 },
-      autoFirstPage: true,
-    });
-
-    // collect buffers
+function bufferFromDoc(doc) {
+  return new Promise((resolve, reject) => {
     const chunks = [];
     doc.on("data", (c) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+    doc.end();
+  });
+}
 
-    const done = new Promise((resolve, reject) => {
-      doc.on("end", resolve);
-      doc.on("error", reject);
-    });
+function ensureSpace(doc, y, needed, margin = 40) {
+  const bottomSafe = doc.page.height - margin;
+  if (y + needed > bottomSafe) {
+    doc.addPage();
+    return margin;
+  }
+  return y;
+}
+
+/** ---------------------------
+ * UI drawing
+ * -------------------------- */
+function drawPageBackground(doc) {
+  doc.save();
+  doc.rect(0, 0, doc.page.width, doc.page.height).fill("#F3F4F6");
+  doc.restore();
+}
+
+function drawCard(doc, x, y, w, h, opts = {}) {
+  const radius = opts.radius ?? 14;
+  const fill = opts.fill ?? "#FFFFFF";
+  const stroke = opts.stroke ?? "#E5E7EB";
+  const lineWidth = opts.lineWidth ?? 1;
+
+  doc.save();
+  doc.roundedRect(x, y + 2, w, h, radius).fillColor("#000000").opacity(0.06).fill();
+  doc.opacity(1);
+
+  doc.roundedRect(x, y, w, h, radius).lineWidth(lineWidth);
+  doc.fillColor(fill).fill();
+  doc.strokeColor(stroke).stroke();
+  doc.restore();
+}
+
+// ✅ Header：subtitle 两行（meta + 文件名），不显示 File:
+function drawHeaderBar(doc, pageW, margin, title, subtitle) {
+  const x = margin;
+  const y = margin;
+  const w = pageW - margin * 2;
+  const h = 76;
+
+  doc.save();
+  doc.roundedRect(x, y, w, h, 16).fillColor("#1F2A8A").fill();
+  doc.restore();
+
+  doc.font("Inter-Bold").fillColor("#FFFFFF").fontSize(18);
+  doc.text(title, x + 18, y + 12, { width: w - 36 });
+
+  const subtitleBoxY = y + 36;
+  const subtitleBoxH = 34;
+  doc.font("Inter-Regular").fillColor("#DCE2FF").fontSize(10);
+  doc.text(subtitle, x + 18, subtitleBoxY, {
+    width: w - 36,
+    height: subtitleBoxH,
+    lineBreak: true,
+  });
+
+  return y + h + 16;
+}
+
+function drawSectionTitle(doc, x, y, title, w) {
+  const titleToLineGap = 20;
+  const lineToNextGap = 25;
+
+  doc.font("Inter-Bold").fillColor("#111827").fontSize(16);
+  doc.text(title, x, y);
+
+  y += 16 + titleToLineGap;
+  doc.moveTo(x, y).lineTo(x + w, y).lineWidth(1).strokeColor("#E5E7EB").stroke();
+  return y + lineToNextGap;
+}
+
+function drawScoreCard(doc, x, y, w, h, title, desc, score, extraLine) {
+  drawCard(doc, x, y, w, h, { radius: 14 });
+
+  doc.font("Inter-SemiBold").fillColor("#111827").fontSize(12);
+  doc.text(title, x + 16, y + 14, { width: w - 32 });
+
+  doc.font("Inter-Regular").fillColor("#6B7280").fontSize(9);
+  doc.text(desc, x + 16, y + 34, { width: w - 32 });
+
+  doc.font("Inter-Regular").fillColor("#6B7280").fontSize(9);
+  doc.text(extraLine || " ", x + 16, y + 50, { width: w - 32 });
+
+  doc.font("Inter-Bold").fillColor("#111827").fontSize(44);
+  doc.text(String(score ?? "--"), x, y + 56, { width: w, align: "center" });
+}
+
+function measureListCardHeight(doc, w, items) {
+  const paddingX = 16;
+  const paddingTop = 14;
+  const titleGap = 10;
+  const bulletGap = 12;
+  const contentW = w - paddingX * 2 - bulletGap;
+
+  const list = safeArray(items);
+
+  doc.font("Inter-Regular").fontSize(10);
+  const itemHeights = list.map((t) => doc.heightOfString(clampText(t, 240), { width: contentW }));
+
+  const itemsHeight = list.length
+    ? itemHeights.reduce((a, b) => a + b, 0) + (list.length - 1) * 6
+    : doc.heightOfString("No items.", { width: contentW });
+
+  const headerH = paddingTop + 12 + titleGap;
+  const contentH = 12 + itemsHeight;
+  return headerH + contentH + 14;
+}
+
+function drawListCard(doc, x, y, w, title, items, opts = {}) {
+  const fixedHeight = opts.fixedHeight;
+
+  const paddingX = 16;
+  const paddingTop = 14;
+  const titleGap = 10;
+  const bulletGap = 12;
+  const contentW = w - paddingX * 2 - bulletGap;
+
+  const list = safeArray(items);
+  const h = fixedHeight ?? measureListCardHeight(doc, w, list);
+
+  drawCard(doc, x, y, w, h, { radius: 14 });
+
+  doc.font("Inter-SemiBold").fillColor("#111827").fontSize(12);
+  doc.text(title, x + paddingX, y + paddingTop, { width: w - paddingX * 2 });
+
+  const contentTopY = y + paddingTop + 12 + titleGap;
+  const contentBottomY = y + h - 14;
+  let ty = contentTopY;
+
+  doc.font("Inter-Regular").fillColor("#374151").fontSize(10);
+
+  if (!list.length) {
+    if (ty + 12 <= contentBottomY) {
+      doc.fillColor("#9CA3AF").text("No items.", x + paddingX, ty, { width: w - paddingX * 2 });
+    }
+    return { h };
+  }
+
+  for (let i = 0; i < list.length; i++) {
+    const t = clampText(list[i], 240);
+    const itemH = doc.heightOfString(t, { width: contentW });
+    if (ty + itemH > contentBottomY) break;
+
+    doc.fillColor("#6B7280").text("•", x + paddingX, ty);
+    doc.fillColor("#374151").text(t, x + paddingX + bulletGap, ty, { width: contentW });
+    ty += itemH + 6;
+  }
+
+  return { h };
+}
+
+function drawFooter(doc, margin) {
+  doc.font("Inter-Regular").fillColor("#9CA3AF").fontSize(8);
+  doc.text("Generated by AI Resume Analyzer", margin, doc.page.height - 28, {
+    width: doc.page.width - margin * 2,
+    align: "center",
+  });
+}
+
+/** ---------------------------
+ * Route handlers
+ * -------------------------- */
+export async function POST(req) {
+  try {
+    const body = await req.json().catch(() => null);
+    if (!body?.report) {
+      return Response.json({ error: "Missing report in request body." }, { status: 400 });
+    }
+
+    const fontRegular = readFontBuffer("assets/fonts/Inter-Regular.ttf");
+    const fontSemiBold = readFontBuffer("assets/fonts/Inter-SemiBold.ttf");
+    const fontBold = readFontBuffer("assets/fonts/Inter-Bold.ttf");
+
+    const report = body.report;
+    const meta = body.meta || {};
+    const fileName = body.fileName || "";
+    const jobDescription = body.jobDescription || "";
+
+    const jobMatch = report?.scores?.jobMatchScore ?? null;
+    const strength = report?.scores?.resumeStrengthScore ?? null;
+    const coverage = report?.skills?.coverage;
+
+    const matchedSkills = pickTop(report?.skills?.matchedSkills, 10);
+    const missingSkills = pickTop(report?.skills?.missingSkills, 10);
+
+    const doingWell = pickTop(report?.insights?.doingWell, 3);
+    const fallsShort = pickTop(report?.insights?.fallsShort, 3);
+    const improvements = pickTop(report?.improvements?.recommended, 5);
+
+    const aiStatus = meta?.aiStatus ?? "unknown";
+    const modelId = meta?.modelId ?? report?.meta?.model ?? "";
+    const region = meta?.region ?? "";
+
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
 
     doc.registerFont("Inter-Regular", fontRegular);
     doc.registerFont("Inter-SemiBold", fontSemiBold);
     doc.registerFont("Inter-Bold", fontBold);
     doc.font("Inter-Regular");
 
-    // ---------- Theme ----------
-    const page = {
-      w: doc.page.width,
-      h: doc.page.height,
-      left: doc.page.margins.left,
-      right: doc.page.width - doc.page.margins.right,
-      top: doc.page.margins.top,
-      bottom: doc.page.height - doc.page.margins.bottom,
-    };
-
-    const COLORS = {
-      navy: "#1E2A78",
-      ink: "#111827",
-      sub: "#6B7280",
-      border: "#E5E7EB",
-      bg: "#FFFFFF",
-      cardBg: "#FFFFFF",
-      soft: "#F9FAFB",
-    };
-
-    const gap = 14;
-    const cardRadius = 14;
-
-    function clampText(s, max = 240) {
-      const str = (s || "").toString().replace(/\s+/g, " ").trim();
-      if (!str) return "";
-      return str.length > max ? str.slice(0, max - 1) + "…" : str;
-    }
-
-    // ---------- Layout helpers ----------
-    function ensureSpace(heightNeeded) {
-      if (doc.y + heightNeeded <= page.bottom) return;
-      doc.addPage();
+    doc.on("pageAdded", () => {
+      drawPageBackground(doc);
       doc.font("Inter-Regular");
-      doc.fillColor(COLORS.ink);
-      doc.y = page.top;
-    }
+    });
 
-    function roundRect(x, y, w, h, r) {
-      doc.roundedRect(x, y, w, h, r);
-    }
+    const margin = doc.page.margins.left;
+    const pageW = doc.page.width;
 
-    function drawCard(x, y, w, h, { fill = COLORS.cardBg, stroke = COLORS.border } = {}) {
-      doc.save();
-      roundRect(x, y, w, h, cardRadius);
-      doc.fillColor(fill).fill();
-      doc.strokeColor(stroke).lineWidth(1).stroke();
-      doc.restore();
-    }
+    drawPageBackground(doc);
 
-    function textHeight(text, width, options = {}) {
-      return doc.heightOfString((text || "").toString(), {
-        width,
-        ...options,
-      });
-    }
+    // ✅ 第一行 meta；第二行文件名（不带 File:）
+    const subtitleParts = [];
+    if (aiStatus) subtitleParts.push("AI: " + aiStatus);
+    if (region) subtitleParts.push("Region: " + region);
+    if (modelId) subtitleParts.push("Model: " + modelId);
 
-    function bulletListHeight(items, width, options = {}) {
-      const arr = Array.isArray(items) ? items : [];
-      if (!arr.length) return 0;
-      let h = 0;
-      for (const it of arr) {
-        const t = (it || "").toString();
-        // 子弹点本身占一行高度（用 indent + hanging indent）
-        h += textHeight(t, width, { ...options }) + 6;
-      }
-      return h;
-    }
+    const metaLine = subtitleParts.join("  •  ");
+    const subtitle = fileName ? metaLine + "\n" + fileName : metaLine;
 
-    function drawSectionTitle(title, icon = null) {
-      doc.font("Inter-Bold").fontSize(16).fillColor(COLORS.ink);
-      doc.text(title, page.left, doc.y, { width: page.right - page.left });
-      doc.moveDown(0.4);
-      doc.font("Inter-Regular").fontSize(11).fillColor(COLORS.sub);
-    }
+    let y = drawHeaderBar(doc, pageW, margin, "AI Resume Analysis Report", subtitle);
 
-    function drawBulletList(items, x, y, width, { fontSize = 11, lineGap = 2 } = {}) {
-      const arr = Array.isArray(items) ? items : [];
-      let cy = y;
-      doc.font("Inter-Regular").fontSize(fontSize).fillColor(COLORS.ink);
+    const gap = 16;
+    const cardW = (pageW - margin * 2 - gap) / 2;
 
-      for (const it of arr) {
-        const text = (it || "").toString().trim();
-        if (!text) continue;
+    // Row 1: Scores
+    const scoreCardH = 160;
+    y = ensureSpace(doc, y, scoreCardH + 10, margin);
 
-
-        const h = textHeight(text, width - 14, { lineGap }) + 6;
-        ensureSpace(h + 4);
-
-
-        doc.circle(x + 4, cy + 6, 1.6).fill(COLORS.ink);
-        doc.fillColor(COLORS.ink).text(text, x + 14, cy, {
-          width: width - 14,
-          lineGap,
-        });
-        cy += h;
-      }
-      return cy;
-    }
-
-    // card content block: returns used height
-    function drawCardBlock({
-      x,
+    drawScoreCard(
+      doc,
+      margin,
       y,
-      w,
-      title,
-      subtitle,
-      contentRenderer, // (innerX, innerY, innerW) => innerEndY
-      minH = 0,
-    }) {
-      const padX = 18;
-      const padY = 16;
-      const innerX = x + padX;
-      const innerW = w - padX * 2;
+      cardW,
+      scoreCardH,
+      "Job Match Score",
+      "How well your resume matches this job description",
+      jobMatch,
+      typeof coverage === "number" ? "Skill coverage: " + pct(coverage) : ""
+    );
 
-      doc.save();
-      doc.font("Inter-SemiBold").fontSize(12).fillColor(COLORS.ink);
-      let cy = y + padY;
+    drawScoreCard(
+      doc,
+      margin + cardW + gap,
+      y,
+      cardW,
+      scoreCardH,
+      "Resume Strength Score",
+      "How strong your resume is based on analysis",
+      strength,
+      ""
+    );
 
-      if (title) {
-        const th = textHeight(title, innerW);
-        cy += th;
-        doc.text(title, innerX, y + padY, { width: innerW });
-        cy += 8;
-      }
+    y += scoreCardH + 18;
 
-      if (subtitle) {
-        doc.font("Inter-Regular").fontSize(10).fillColor(COLORS.sub);
-        const sh = textHeight(subtitle, innerW);
-        doc.text(subtitle, innerX, cy - 2, { width: innerW });
-        cy += sh + 10;
-        doc.font("Inter-Regular").fontSize(11).fillColor(COLORS.ink);
-      }
+    // Row 2: Skills (同行等高)
+    const skillsHL = measureListCardHeight(doc, cardW, matchedSkills);
+    const skillsHR = measureListCardHeight(doc, cardW, missingSkills);
+    const skillsRowH = Math.max(skillsHL, skillsHR);
 
+    y = ensureSpace(doc, y, skillsRowH + 10, margin);
 
-      const startY = cy;
-      const endY = contentRenderer ? contentRenderer(innerX, cy, innerW) : cy;
-      const contentH = endY - (y + padY);
+    drawListCard(doc, margin, y, cardW, "Matched skills", matchedSkills, { fixedHeight: skillsRowH });
+    drawListCard(doc, margin + cardW + gap, y, cardW, "Missing skills", missingSkills, { fixedHeight: skillsRowH });
 
-      const cardH = Math.max(minH, contentH + padY);
-      doc.restore();
+    y += skillsRowH + 18;
 
-      return cardH;
-    }
+    // Section: Insights
+    y = ensureSpace(doc, y, 70, margin);
+    y = drawSectionTitle(doc, margin, y, "AI Resume Insights", pageW - margin * 2);
 
+    const insightHL = measureListCardHeight(doc, cardW, doingWell);
+    const insightHR = measureListCardHeight(doc, cardW, fallsShort);
+    const insightRowH = Math.max(insightHL, insightHR);
 
-    function renderCard({
-      x,
-      w,
-      title,
-      subtitle,
-      measureContentHeight, // (innerW) => height
-      renderContent, // (innerX, innerY, innerW) => endY
-      minH = 0,
-    }) {
-      const padX = 18;
-      const padY = 16;
-      const innerW = w - padX * 2;
+    y = ensureSpace(doc, y, insightRowH + 10, margin);
 
+    drawListCard(doc, margin, y, cardW, "What you're doing well", doingWell, { fixedHeight: insightRowH });
+    drawListCard(doc, margin + cardW + gap, y, cardW, "Where your resume falls short", fallsShort, { fixedHeight: insightRowH });
 
-      doc.font("Inter-SemiBold").fontSize(12);
-      let h = padY;
+    y += insightRowH + 18;
 
-      if (title) h += textHeight(title, innerW) + 8;
-      if (subtitle) {
-        doc.font("Inter-Regular").fontSize(10);
-        h += textHeight(subtitle, innerW) + 10;
-      }
+    // Section: Improvements
+    y = ensureSpace(doc, y, 70, margin);
+    y = drawSectionTitle(doc, margin, y, "How to Improve Your Resume for This Role", pageW - margin * 2);
 
-      const contentH = measureContentHeight ? measureContentHeight(innerW) : 0;
-      h += contentH + padY;
+    const improveW = pageW - margin * 2;
+    const improveH = measureListCardHeight(doc, improveW, improvements);
 
-      const cardH = Math.max(minH, h);
+    y = ensureSpace(doc, y, improveH + 10, margin);
+    const improveCard = drawListCard(doc, margin, y, improveW, "Recommended improvements", improvements, { fixedHeight: improveH });
+    y += improveCard.h + 14;
 
-
-      ensureSpace(cardH);
-
-
-      const y = doc.y;
-      drawCard(x, y, w, cardH, { fill: COLORS.cardBg, stroke: COLORS.border });
-
-
-      let cy = y + padY;
-      const innerX = x + padX;
-
-      if (title) {
-        doc.font("Inter-SemiBold").fontSize(12).fillColor(COLORS.ink);
-        doc.text(title, innerX, cy, { width: innerW });
-        cy += textHeight(title, innerW) + 8;
-      }
-      if (subtitle) {
-        doc.font("Inter-Regular").fontSize(10).fillColor(COLORS.sub);
-        doc.text(subtitle, innerX, cy, { width: innerW });
-        cy += textHeight(subtitle, innerW) + 10;
-      }
-
-      doc.font("Inter-Regular").fontSize(11).fillColor(COLORS.ink);
-      const endY = renderContent ? renderContent(innerX, cy, innerW) : cy;
-
-
-      doc.y = y + cardH + gap;
-      return endY;
-    }
-
-    // ---------- Data ----------
-    const scores = report?.scores || {};
-    const skills = report?.skills || {};
-    const insights = report?.insights || {};
-    const improvements = report?.improvements || {};
-
-    const jobMatchScore = scores?.jobMatchScore ?? "--";
-    const strengthScore = scores?.resumeStrengthScore ?? "--";
-    const coverage = typeof skills?.coverage === "number" ? Math.round(skills.coverage * 100) + "%" : "";
-
-    const matchedSkills = Array.isArray(skills?.matchedSkills) ? skills.matchedSkills.slice(0, 10) : [];
-    const missingSkills = Array.isArray(skills?.missingSkills) ? skills.missingSkills.slice(0, 10) : [];
-
-    const doingWell = Array.isArray(insights?.doingWell) ? insights.doingWell.slice(0, 6) : [];
-    const fallsShort = Array.isArray(insights?.fallsShort) ? insights.fallsShort.slice(0, 6) : [];
-    const recs = Array.isArray(improvements?.recommended) ? improvements.recommended.slice(0, 10) : [];
-
-    const aiStatus = meta?.aiStatus || "unknown";
-    const region = meta?.region || "";
-    const modelId = meta?.modelId || "";
-
-    // ---------- Header (Hero Card) ----------
-
-    const heroH = 86;
-    ensureSpace(heroH);
-
-    const heroX = page.left;
-    const heroW = page.right - page.left;
-    const heroY = doc.y;
-
-    doc.save();
-    doc.roundedRect(heroX, heroY, heroW, heroH, 16).fill(COLORS.navy);
-    doc.restore();
-
-    doc.fillColor("#FFFFFF").font("Inter-Bold").fontSize(20);
-    doc.text("AI Resume Analysis Report", heroX + 20, heroY + 18, {
-      width: heroW - 40,
-    });
-
-    doc.font("Inter-Regular").fontSize(9).fillColor("#DCE3FF");
-    const metaLine = [
-      `AI: ${aiStatus}`,
-      region ? `Region: ${region}` : null,
-      modelId ? `Model: ${modelId}` : null,
-      fileName ? `File: ${fileName}` : null,
-    ]
-      .filter(Boolean)
-      .join("  •  ");
-
-    doc.text(metaLine, heroX + 20, heroY + 48, {
-      width: heroW - 40,
-      lineGap: 2,
-    });
-
-    doc.y = heroY + heroH + 18;
-
-    // ---------- Two score cards ----------
-    const colGap = 16;
-    const colW = (heroW - colGap) / 2;
-    const leftX = page.left;
-    const rightX = page.left + colW + colGap;
-
-    // left Job Match
-    renderCard({
-      x: leftX,
-      w: colW,
-      title: "Job Match Score",
-      subtitle: `How well your resume matches this job description${coverage ? `\nSkill coverage: ${coverage}` : ""}`,
-      minH: 150,
-      measureContentHeight: () => 0,
-      renderContent: (x, y, w) => {
-        doc.font("Inter-Bold").fontSize(54).fillColor(COLORS.ink);
-        doc.text(String(jobMatchScore), x, y + 12, { width: w, align: "center" });
-        return y + 90;
-      },
-    });
-
-    // right Strength
-
-    const rowTopY = heroY + heroH + 18;
-    const afterLeftY = doc.y;
-
-    // 把 y 回到这一行顶部再画右卡
-    doc.y = rowTopY;
-    renderCard({
-      x: rightX,
-      w: colW,
-      title: "Resume Strength Score",
-      subtitle: "How strong your resume is based on analysis",
-      minH: 150,
-      measureContentHeight: () => 0,
-      renderContent: (x, y, w) => {
-        doc.font("Inter-Bold").fontSize(54).fillColor(COLORS.ink);
-        doc.text(String(strengthScore), x, y + 12, { width: w, align: "center" });
-        return y + 90;
-      },
-    });
-
-
-    doc.y = Math.max(afterLeftY, doc.y) + 6;
-
-    // ---------- Skills overview card (2 columns inside) ----------
-    renderCard({
-      x: page.left,
-      w: heroW,
-      title: "Skills Overview",
-      subtitle: "",
-      measureContentHeight: (innerW) => {
-        const half = (innerW - 18) / 2;
-        doc.font("Inter-SemiBold").fontSize(11);
-        let h = 0;
-        h += textHeight("Matched skills", half) + 8;
-        h += bulletListHeight(matchedSkills, half - 14, { fontSize: 11, lineGap: 2 });
-        h += 10;
-        h = Math.max(
-          h,
-          textHeight("Missing skills", half) +
-            8 +
-            bulletListHeight(missingSkills, half - 14, { fontSize: 11, lineGap: 2 }) +
-            10
-        );
-        return h;
-      },
-      renderContent: (x, y, innerW) => {
-        const half = (innerW - 18) / 2;
-        const left = x;
-        const right = x + half + 18;
-
-        // Left
-        doc.font("Inter-SemiBold").fontSize(11).fillColor(COLORS.ink);
-        doc.text("Matched skills", left, y, { width: half });
-        let cyL = y + 18;
-        cyL = drawBulletList(matchedSkills, left, cyL, half, { fontSize: 11 });
-
-        // Right
-        doc.font("Inter-SemiBold").fontSize(11).fillColor(COLORS.ink);
-        doc.text("Missing skills", right, y, { width: half });
-        let cyR = y + 18;
-        cyR = drawBulletList(missingSkills, right, cyR, half, { fontSize: 11 });
-
-        return Math.max(cyL, cyR);
-      },
-    });
-
-    // ---------- AI Resume Insights (two cards in a row) ----------
-    doc.font("Inter-Bold").fontSize(16).fillColor(COLORS.ink);
-    doc.text("AI Resume Insights", page.left, doc.y, { width: heroW });
-    doc.moveDown(0.6);
-
-    const insightsRowTop = doc.y;
-
-    // measure both cards to decide page break BEFORE drawing
-    const insightsCardMinH = 170;
-
-    // left: doing well
-    const doingH = (() => {
-      doc.font("Inter-Regular").fontSize(11);
-      return bulletListHeight(doingWell, colW - 18 * 2 - 14, { fontSize: 11, lineGap: 2 });
-    })();
-    const fallsH = (() => {
-      doc.font("Inter-Regular").fontSize(11);
-      return bulletListHeight(fallsShort, colW - 18 * 2 - 14, { fontSize: 11, lineGap: 2 });
-    })();
-
-    const needRowH = Math.max(insightsCardMinH, 16 + 12 + 8 + doingH + 18);
-    ensureSpace(needRowH);
-
-    // Draw left insights card
-    doc.y = insightsRowTop;
-    renderCard({
-      x: leftX,
-      w: colW,
-      title: "What you're doing well",
-      subtitle: "",
-      minH: insightsCardMinH,
-      measureContentHeight: (innerW) => bulletListHeight(doingWell, innerW - 14, { fontSize: 11, lineGap: 2 }),
-      renderContent: (x, y, w) => drawBulletList(doingWell, x, y, w, { fontSize: 11 }),
-    });
-
-    const afterDoingY = doc.y;
-
-    // Draw right insights card (same row)
-    doc.y = insightsRowTop;
-    renderCard({
-      x: rightX,
-      w: colW,
-      title: "Where your resume falls short",
-      subtitle: "",
-      minH: insightsCardMinH,
-      measureContentHeight: (innerW) => bulletListHeight(fallsShort, innerW - 14, { fontSize: 11, lineGap: 2 }),
-      renderContent: (x, y, w) => drawBulletList(fallsShort, x, y, w, { fontSize: 11 }),
-    });
-
-    doc.y = Math.max(afterDoingY, doc.y) + 8;
-
-    // ---------- Improvements (single full-width card) ----------
-    doc.font("Inter-Bold").fontSize(16).fillColor(COLORS.ink);
-    doc.text("How to Improve Your Resume for This Role", page.left, doc.y, { width: heroW });
-    doc.moveDown(0.6);
-
-    renderCard({
-      x: page.left,
-      w: heroW,
-      title: "Recommended improvements",
-      subtitle: "",
-      minH: 160,
-      measureContentHeight: (innerW) => bulletListHeight(recs, innerW - 14, { fontSize: 11, lineGap: 2 }),
-      renderContent: (x, y, w) => drawBulletList(recs, x, y, w, { fontSize: 11 }),
-    });
-
-    // ---------- Job description snippet (only if exists) ----------
-    const jdSnippet = clampText(jobDescription, 520);
+    // ✅ Job description snippet：放不下就不画，避免空白页
+    const jdSnippet = clampText(jobDescription.replace(/\s+/g, " ").trim(), 260);
     if (jdSnippet) {
-      renderCard({
-        x: page.left,
-        w: heroW,
-        title: "Job description snippet",
-        subtitle: "",
-        minH: 110,
-        measureContentHeight: (innerW) => textHeight(jdSnippet, innerW, { lineGap: 2 }),
-        renderContent: (x, y, w) => {
-          doc.font("Inter-Regular").fontSize(10).fillColor(COLORS.sub);
-          doc.text(jdSnippet, x, y, { width: w, lineGap: 2 });
-          return y + textHeight(jdSnippet, w, { lineGap: 2 });
-        },
-      });
+      const snippetH = 72;
+      const bottomSafe = doc.page.height - margin;
+      const canFit = y + snippetH + 10 <= bottomSafe;
+
+      if (canFit) {
+        drawCard(doc, margin, y, pageW - margin * 2, snippetH, {
+          radius: 14,
+          fill: "#F9FAFB",
+          stroke: "#E5E7EB",
+        });
+
+        doc.font("Inter-SemiBold").fillColor("#111827").fontSize(11);
+        doc.text("Job description snippet", margin + 16, y + 12);
+
+        doc.font("Inter-Regular").fillColor("#4B5563").fontSize(9);
+        doc.text(jdSnippet, margin + 16, y + 30, { width: pageW - margin * 2 - 32 });
+
+        y += snippetH + 8;
+      }
     }
 
-    // ---------- Footer (each page) ----------
+    drawFooter(doc, margin);
 
-    doc.font("Inter-Regular").fontSize(8).fillColor("#9CA3AF");
-    doc.text("Generated by AI Resume Analyzer", page.left, page.bottom - 16, {
-      width: heroW,
-      align: "center",
-    });
-
-    doc.end();
-    await done;
-
-    const pdfBuffer = Buffer.concat(chunks);
+    const pdfBuffer = await bufferFromDoc(doc);
 
     return new Response(pdfBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="resume-report-${report?.meta?.reportId || "report"}.pdf"`,
+        "Content-Disposition": 'attachment; filename="resume-report.pdf"',
+        "Cache-Control": "no-store",
       },
     });
   } catch (e) {
     console.error("[pdf] error:", e);
-    return Response.json(
-      { error: e?.message || "PDF export failed" },
-      { status: 500 }
-    );
+    return Response.json({ error: e?.message || "PDF export failed" }, { status: 500 });
   }
 }
+
 
 export async function GET() {
   return Response.json({ ok: true, service: "report/pdf" });

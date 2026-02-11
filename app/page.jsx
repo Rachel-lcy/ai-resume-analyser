@@ -123,13 +123,15 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+
+
   };
 
   return (
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
-        meta={meta}
 
+        <Header meta={{ fileName: "" }}/>
 
         <section className="relative rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
           {/* Loading overlay */}
