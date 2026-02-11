@@ -110,7 +110,7 @@ export default function SuccessScore() {
 
         <div className="rounded-lg bg-indigo-800 px-8 py-6 text-base font-semibold text-white">
           {status === "loading" && <p>Generating AI insights…</p>}
-          {status === "ready" && <p>AI insights generated successfully!</p>}
+          {status === "ready" && <p>AI Analysis complete — here’s how your resume matches this role!</p>}
           {status === "empty" && <p>No report found. Please upload a resume first.</p>}
           {status === "error" && <p>Report data is corrupted. Please try again.</p>}
         </div>
@@ -147,7 +147,7 @@ export default function SuccessScore() {
                 <div>
                   <h2 className="text-xl font-semibold text-gray-900">Job Match Score:</h2>
                   <p className="mt-2 text-sm text-gray-600">
-                    How well your resume matches this job description
+                    Scores above 80 indicate strong alignment with the job description.
                   </p>
                   {typeof coverage === "number" && (
                     <p className="mt-2 text-sm text-gray-500">
@@ -181,7 +181,7 @@ export default function SuccessScore() {
 
               <div className="mt-4 grid gap-6 md:grid-cols-2">
                 <div>
-                  <p className="font-medium text-gray-900">Matched skills</p>
+                  <p className="font-bold text-indigo-900">Matched skills</p>
                   {matchedSkills.length ? (
                     <ul className="mt-3 list-disc list-inside space-y-1 text-gray-700">
                       {matchedSkills.slice(0, 10).map((s, idx) => (
@@ -194,7 +194,7 @@ export default function SuccessScore() {
                 </div>
 
                 <div>
-                  <p className="font-medium text-gray-900">Missing skills</p>
+                  <p className="font-bold text-orange-900">Missing skills</p>
                   {missingSkills.length ? (
                     <ul className="mt-3 list-disc list-inside space-y-1 text-gray-700">
                       {missingSkills.slice(0, 10).map((s, idx) => (
@@ -209,9 +209,29 @@ export default function SuccessScore() {
             </div>
 
             <div>
-              <h1 className="text-3xl font-bold mt-8 tracking-wide">🔎 AI Resume Insights</h1>
+              {/* <h1 className="text-3xl font-bold mt-8 tracking-wide">🔎 AI Resume Insights - Why this matters</h1> */}
 
-              <div className="mt-8">
+            <div className="mt-10">
+              <div className="flex items-start gap-3">
+                <span className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                  🔎
+                </span>
+
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
+                    AI Resume Insights
+                    <span className="text-gray-400 font-medium"> · Why this matters</span>
+                  </h2>
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    Key strengths and gaps identified from your resume and the job description.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 h-px w-full bg-gray-200" />
+            </div>
+            <div className="mt-8">
                 <h3 className="text-xl font-medium text-gray-900">- What You’re Doing Well</h3>
                 {doingWell.length ? (
                   <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
@@ -239,9 +259,27 @@ export default function SuccessScore() {
             </div>
 
             <div>
-              <h1 className="text-3xl font-bold mt-8 tracking-wide">
-                🔎 How to Improve Your Resume for This Role
-              </h1>
+
+            <div className="mt-12">
+              <div className="flex items-start gap-3">
+                <span className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                  ✨
+                </span>
+
+                <div>
+                  <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
+                    How to Improve Your Resume
+                    <span className="text-gray-400 font-medium"> · For this role</span>
+                  </h2>
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    Actionable suggestions to increase your match score and resume strength.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 h-px w-full bg-gray-200" />
+            </div>
 
               <div className="mt-8">
                 <h3 className="text-xl font-medium text-gray-900">- Recommended Improvements</h3>

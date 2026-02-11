@@ -131,7 +131,16 @@ export default function Home() {
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
 
-        <Header meta={{ fileName: "" }}/>
+        <h1 className="text-4xl font-bold flex items-center gap-3">
+          AI Resume Analyzer
+          <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
+            AI powered by Claude 3 Haiku (AWS Bedrock)
+          </span>
+        </h1>
+        <p className="text-gray-400 mt-2 mb-6 text-sm">
+          Get instant feedback on how well your resume matches the job you want.
+        </p>
+
 
         <section className="relative rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
           {/* Loading overlay */}
@@ -170,7 +179,7 @@ export default function Home() {
                         <span className="font-medium text-gray-900">{fileName}</span>
                       </>
                     ) : (
-                      "PDF only • Recommended under 10MB"
+                      "PDF only • Recommended under 10MB "
                     )}
                   </p>
                 </div>
@@ -178,7 +187,7 @@ export default function Home() {
 
               {/* Browse */}
               <button
-                className="shrink-0 rounded-xl bg-gray-800 px-5 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-60"
+                className="shrink-0 rounded-xl bg-indigo-800 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-60"
                 type="button"
                 onClick={handleBrowseClick}
                 disabled={isLoading}
@@ -240,7 +249,7 @@ export default function Home() {
             disabled={isLoading}
             className="mt-8 rounded-2xl border border-indigo-700 px-5 py-2.5 font-semibold text-indigo-900 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isLoading ? "Analyzing..." : "Analyze"}
+            {isLoading ? "Analyzing..." : " Analyze Resume"}
           </button>
         </section>
       </div>
