@@ -183,6 +183,7 @@ export const SKILL_ALIASES = {
     "es2020",
     "vanilla js",
     "vanilla javascript",
+    "JS"
 
   ],
 
@@ -460,6 +461,16 @@ export const SKILL_ALIASES = {
     "figma design",
     "figma prototype",
     "figma prototyping",
+    "design",
+  ],
+
+  "UX":[
+    "user experience",
+    "ux",
+  ],
+   "UI":[
+    "user interface",
+    "ui",
   ],
 
   "Postman": [

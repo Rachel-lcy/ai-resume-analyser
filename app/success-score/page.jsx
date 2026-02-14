@@ -28,8 +28,8 @@ export default function SuccessScore() {
   const [report, setReport] = useState(null);
   const [meta, setMeta] = useState(null);
 
-  // Explain JSON
-  const [explain, setExplain] = useState(null); // { breakdown, drivers, actions }
+  // explain JSON: { breakdown, drivers, actions }
+  const [explain, setExplain] = useState(null);
   const [explainStatus, setExplainStatus] = useState("idle"); // idle | loading | ready | error
   const [explainError, setExplainError] = useState("");
 
@@ -50,10 +50,7 @@ export default function SuccessScore() {
     }
 
     setReport(parsed);
-
-    const parsedMeta = metaRaw ? safeParseJSON(metaRaw) : null;
-    setMeta(parsedMeta);
-
+    setMeta(metaRaw ? safeParseJSON(metaRaw) : null);
     setStatus("ready");
   }, []);
 
@@ -68,6 +65,19 @@ export default function SuccessScore() {
   const missingSkills = useMemo(() => report?.skills?.missingSkills ?? [], [report]);
   const coverage = report?.skills?.coverage;
 
+  // ✅ 从 report.meta.scoreMeta 读取（你后端 route.js 已经写进去）
+  const scoreMeta = report?.meta?.scoreMeta || null;
+
+  // 备用：从 report 内估算 skill count（如果 scoreMeta 没有）
+  const resumeSkillCountFromReport = useMemo(() => {
+    return (
+      report?.skills?.resumeSkills?.length ??
+      report?.skills?.allSkills?.length ??
+      report?.resumeSkills?.length ??
+      0
+    );
+  }, [report]);
+
   // ✅ runExplain：拿结构化 JSON（Breakdown/Drivers/Actions）
   const runExplain = useCallback(
     async (force = false) => {
@@ -80,9 +90,12 @@ export default function SuccessScore() {
         missing: report?.skills?.missingSkills ?? [],
         coverage: report?.skills?.coverage ?? 0,
         jdTopSkills: report?.skills?.jdTopSkills ?? meta?.jdTopSkills ?? [],
+        resumeSkillCount: resumeSkillCountFromReport ?? 0,
       };
 
-      const cacheKey = `ai_explain_v2_${report?.meta?.reportId || "latest"}`;
+      // ✅ 缓存 key：把 reportId + 分数拼进去，避免换 JD 但读旧缓存
+      const reportId = report?.meta?.reportId || "latest";
+      const cacheKey = `ai_explain_v2_${reportId}_${payload.jobMatchScore}_${payload.resumeStrengthScore}`;
 
       if (force) sessionStorage.removeItem(cacheKey);
 
@@ -129,7 +142,10 @@ export default function SuccessScore() {
         setExplainStatus("error");
         setExplainError(msg);
 
-        // 兜底：至少给 UI 一个结构
+        // fallback：也要把 strength 公式字段带上（旧公式）
+        const usedCount = Math.min(payload.resumeSkillCount || 0, 20);
+        const computedStrength = Math.min(55 + usedCount * 2, 100);
+
         const fallback = {
           breakdown: {
             jobMatchScore: payload.jobMatchScore,
@@ -138,6 +154,11 @@ export default function SuccessScore() {
             matchedCount: safeArray(payload.matched).length,
             jdCount: safeArray(payload.matched).length + safeArray(payload.missing).length,
             formula: "Job Match Score = 50 + coverage*50",
+
+            resumeSkillCount: payload.resumeSkillCount,
+            usedCount,
+            computedStrength,
+            strengthFormula: "Resume Strength Score = 55 + min(resume_skill_count, 20)*2",
           },
           drivers: {
             topMatched: safeArray(payload.matched).slice(0, 3),
@@ -156,7 +177,7 @@ export default function SuccessScore() {
         clearTimeout(timeoutId);
       }
     },
-    [report, meta]
+    [report, meta, resumeSkillCountFromReport]
   );
 
   // 自动触发一次
@@ -179,12 +200,7 @@ export default function SuccessScore() {
       const res = await fetch("/api/report/pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          report,
-          meta,
-          jobDescription: jd,
-          fileName,
-        }),
+        body: JSON.stringify({ report, meta, jobDescription: jd, fileName }),
       });
 
       if (!res.ok) {
@@ -210,6 +226,36 @@ export default function SuccessScore() {
   const breakdown = explain?.breakdown || null;
   const drivers = explain?.drivers || null;
   const actions = safeArray(explain?.actions);
+
+  // 旧公式回退展示需要的字段
+  const derivedResumeSkillCount =
+    (typeof breakdown?.resumeSkillCount === "number"
+      ? breakdown.resumeSkillCount
+      : resumeSkillCountFromReport) ?? 0;
+
+  const derivedUsedCount =
+    (typeof breakdown?.usedCount === "number"
+      ? breakdown.usedCount
+      : Math.min(derivedResumeSkillCount, 20)) ?? 0;
+
+  const derivedComputedStrength =
+    (typeof breakdown?.computedStrength === "number"
+      ? breakdown.computedStrength
+      : Math.min(55 + derivedUsedCount * 2, 100)) ?? "--";
+
+
+  const newBreakdown = scoreMeta?.breakdown || null;
+  const newBase = typeof newBreakdown?.base === "number" ? newBreakdown.base : 40;
+  const newBreadth = typeof newBreakdown?.breadth === "number" ? newBreakdown.breadth : 0;
+  const newRelevance = typeof newBreakdown?.relevance === "number" ? newBreakdown.relevance : 0;
+  const newEvidence = typeof newBreakdown?.evidence === "number" ? newBreakdown.evidence : 0;
+  const newTotal = Math.min(newBase + newBreadth + newRelevance + newEvidence, 100);
+
+  const newResumeSkillCount =
+    typeof scoreMeta?.resumeSkillCount === "number" ? scoreMeta.resumeSkillCount : null;
+
+  const newMatchedSkillCount =
+    typeof scoreMeta?.matchedSkillCount === "number" ? scoreMeta.matchedSkillCount : null;
 
   return (
     <main className="min-h-screen bg-white">
@@ -255,13 +301,7 @@ export default function SuccessScore() {
                   <p className="mt-2 text-sm text-gray-600">
                     Scores above 80 indicate strong alignment with the job description.
                   </p>
-                  {typeof coverage === "number" && (
-                    <p className="mt-2 text-sm text-gray-500">
-                      Skill coverage: <span className="font-semibold">{toPercent(coverage)}</span>
-                    </p>
-                  )}
                 </div>
-
                 <div className="mt-10 flex items-center justify-center">
                   <p className="text-7xl font-extrabold text-black">{jobMatch ?? "--"}</p>
                 </div>
@@ -272,7 +312,6 @@ export default function SuccessScore() {
                   <h2 className="text-xl font-semibold text-gray-900">Resume Strength Score:</h2>
                   <p className="mt-2 text-sm text-gray-600">How strong your resume is based on AI analysis</p>
                 </div>
-
                 <div className="mt-10 flex items-center justify-center">
                   <p className="text-7xl font-extrabold text-black">{strength ?? "--"}</p>
                 </div>
@@ -311,7 +350,7 @@ export default function SuccessScore() {
               </div>
             </div>
 
-            {/* ✅ AI Explanation v2: Breakdown / Drivers / Actions */}
+            {/* ✅ Score Breakdown */}
             <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700">
@@ -347,7 +386,6 @@ export default function SuccessScore() {
                     )}
                   </div>
 
-                  {/* Breakdown cards */}
                   <div className="mt-6 grid gap-4 md:grid-cols-3">
                     <div className="rounded-xl border border-gray-200 p-4">
                       <p className="text-xs font-semibold text-gray-500">JOB MATCH</p>
@@ -355,7 +393,7 @@ export default function SuccessScore() {
                         {breakdown?.jobMatchScore ?? jobMatch ?? "--"}
                       </p>
                       <p className="mt-2 text-sm text-gray-600">
-                        Coverage:{" "}
+                        Skill Coverage:{" "}
                         <span className="font-semibold">
                           {typeof breakdown?.coveragePct === "number"
                             ? `${breakdown.coveragePct}%`
@@ -376,19 +414,171 @@ export default function SuccessScore() {
                           ? breakdown.jdCount
                           : (matchedSkills.length + missingSkills.length || "--")}
                       </p>
-                      <p className="mt-2 text-sm text-gray-600">
-                        Matched JD skills used for coverage.
-                      </p>
+                      <p className="mt-2 text-sm text-gray-600">Matched JD skills used for coverage.</p>
                     </div>
 
-                    <div className="rounded-xl border border-gray-200 p-4">
+                    {/* ✅ RESUME STRENGTH：优先用新算法 scoreMeta；没有就回退旧公式 */}
+                    {/* <div className="rounded-xl border border-gray-200 p-4">
                       <p className="text-xs font-semibold text-gray-500">RESUME STRENGTH</p>
                       <p className="mt-2 text-3xl font-extrabold text-gray-900">
-                        {breakdown?.resumeStrengthScore ?? strength ?? "--"}
+                        {strength ?? "--"}
                       </p>
+
+                      {scoreMeta?.breakdown ? (
+                        <>
+                          <p className="mt-2 text-xs text-gray-600">
+                            {newBase} (base) + {newBreadth} (breadth) + {newRelevance} (relevance) + {newEvidence} (evidence)
+                            {" "} = <span className="font-semibold">{newTotal}</span>
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            resume_skill_count={newResumeSkillCount ?? "--"}
+                            {newMatchedSkillCount !== null ? `, matched_skill_count=${newMatchedSkillCount}` : ""}
+                          </p>
+                        </>
+                      ) : (
+                        <div className="mt-2 text-sm text-gray-600">
+                          <div className="font-semibold text-gray-800">
+                            55 + min({derivedResumeSkillCount}, 20) × 2 = {derivedComputedStrength}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            We counted <span className="font-semibold">{derivedResumeSkillCount}</span> skills and used{" "}
+                            <span className="font-semibold">{derivedUsedCount}</span> (cap at 20).
+                          </div>
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            {breakdown?.strengthFormula || "Resume Strength Score = 55 + min(resume_skill_count, 20)*2"}
+                          </div>
+                        </div>
+                      )}
+                    </div> */}
+                    <div className="rounded-xl border border-gray-200 p-4">
+                      <p className="text-xs font-semibold text-gray-500">RESUME STRENGTH</p>
+
+                      {/* 大分数 */}
+                      <p className="mt-2 text-3xl font-extrabold text-gray-900">
+                        {strength ?? breakdown?.resumeStrengthScore ?? "--"}
+                      </p>
+
+                      {/* 给招聘者看的 */}
                       <p className="mt-2 text-sm text-gray-600">
-                        Based on skill breadth + evidence.
+                        {scoreMeta?.breakdown
+                          ? "Computed from breadth + relevance + evidence (auditable)."
+                          : "Based on skill breadth + evidence."}
                       </p>
+
+                      {/* 公式一行 */}
+                      {scoreMeta?.breakdown && (
+                        <p className="mt-2 text-xs text-gray-700">
+                          <span className="font-semibold">
+                            {scoreMeta.breakdown.base} (base) + {scoreMeta.breakdown.breadth} (breadth) +{" "}
+                            {scoreMeta.breakdown.relevance} (relevance) + {scoreMeta.breakdown.evidence} (evidence)
+                          </span>
+                          {" "}={" "}
+                          <span className="font-semibold">
+                            {Math.min(
+                              100,
+                              (scoreMeta.breakdown.base || 0) +
+                                (scoreMeta.breakdown.breadth || 0) +
+                                (scoreMeta.breakdown.relevance || 0) +
+                                (scoreMeta.breakdown.evidence || 0)
+                            )}
+                          </span>
+                        </p>
+                      )}
+
+  {/* 折叠：详细算法（给企业/招聘者审计） */}
+                      <details className="mt-3 w-full rounded-xl border border-gray-200 bg-white overflow-hidden">
+                        <summary className="cursor-pointer select-none text-sm font-semibold text-gray-800 py-2 px-2">
+                          View scoring details (for recruiters)
+                        </summary>
+
+                        <div className="mt-3 space-y-3 text-sm text-gray-700">
+                          {/* 本次计算输入 */}
+                          <div className="mt-3 w-full rounded-xl border border-gray-200 bg-white p-3">
+                            <p className="text-xs font-semibold text-gray-500">Inputs used</p>
+
+                            <div className="mt-2 grid w-full grid-cols-1 gap-3 lg:grid-cols-2">
+                              <div className="min-w-0 rounded-lg bg-gray-50 p-3">
+                                <p className="text-xs text-gray-500 break-words">resume_skill_count</p>
+                                <p className="mt-1 text-lg font-semibold text-gray-900">
+                                  {scoreMeta?.resumeSkillCount ?? "--"}
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+                                  Unique skills extracted from resume (deduplicated).
+                                </p>
+                              </div>
+
+                              <div className="min-w-0 rounded-lg bg-gray-50 p-3">
+                                <p className="text-xs text-gray-500 break-words">matched_skill_count</p>
+                                <p className="mt-1 text-lg font-semibold text-gray-900">
+                                  {scoreMeta?.matchedSkillCount ?? "--"}
+                                </p>
+                                <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+                                  Skills that overlap between JD skills and resume skills.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+
+                          {/* 算法定义 */}
+                          <div className="rounded-lg bg-white p-3 border border-gray-200">
+                            <p className="text-xs font-semibold text-gray-500">Formula</p>
+                            <p className="mt-2 font-mono text-xs text-gray-700">
+                              Resume Strength = 40 + breadth + relevance + evidence (cap at 100)
+                            </p>
+
+                            <div className="mt-3 space-y-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-semibold">Breadth (0–40)</p>
+                                  <p className="text-xs text-gray-500">
+                                    breadth = min(resume_skill_count, 20) × 2
+                                  </p>
+                                </div>
+                                <p className="font-semibold">{scoreMeta?.breakdown?.breadth ?? "--"}</p>
+                              </div>
+
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-semibold">Relevance (0–20)</p>
+                                  <p className="text-xs text-gray-500">
+                                    relevance = min(matched_skill_count, 10) × 2
+                                  </p>
+                                </div>
+                                <p className="font-semibold">{scoreMeta?.breakdown?.relevance ?? "--"}</p>
+                              </div>
+
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-semibold">Evidence (0–20)</p>
+                                  <p className="text-xs text-gray-500">
+                                    evidence is estimated from resume bullets (verbs + metrics + project signals)
+                                  </p>
+                                </div>
+                                <p className="font-semibold">{scoreMeta?.breakdown?.evidence ?? "--"}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Evidence 的启发式 */}
+                          <div className="rounded-lg bg-white p-3 border border-gray-200">
+                            <p className="text-xs font-semibold text-gray-500">Evidence scoring heuristic (0–20)</p>
+                            <ul className="mt-2 list-disc list-inside space-y-1 text-xs text-gray-600">
+                              <li>Action verbs (max 10): built / implemented / optimized / deployed …</li>
+                              <li>Metrics (max 8): numbers, %, ms/sec, users, requests, etc.</li>
+                              <li>Project signals (max 2): project/portfolio/api/full-stack/Next.js/React/AWS…</li>
+                            </ul>
+                            <p className="mt-2 text-xs text-gray-500">
+                              Tip: Add 1–2 quantified bullets (Action + Tool + Result) to raise evidence fast.
+                            </p>
+                          </div>
+
+
+                          <p className="text-xs text-gray-500 py-2 px-2">
+                            We keep these details collapsed to reduce UI noise for candidates, while still making the score auditable for employers.
+                          </p>
+                        </div>
+                      </details>
                     </div>
                   </div>
 
@@ -401,6 +591,7 @@ export default function SuccessScore() {
                         </span>
                         <p className="font-semibold text-gray-900">Top drivers (matched)</p>
                       </div>
+
                       {explainStatus === "loading" ? (
                         <div className="mt-3 space-y-2">
                           <div className="h-3 w-10/12 rounded-full bg-gray-100" />
@@ -409,9 +600,7 @@ export default function SuccessScore() {
                       ) : (
                         <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-gray-700">
                           {(safeArray(drivers?.topMatched).length ? drivers.topMatched : matchedSkills.slice(0, 3)).map(
-                            (s, idx) => (
-                              <li key={`tm-${idx}`}>{s}</li>
-                            )
+                            (s, idx) => <li key={`tm-${idx}`}>{s}</li>
                           )}
                         </ul>
                       )}
@@ -424,6 +613,7 @@ export default function SuccessScore() {
                         </span>
                         <p className="font-semibold text-gray-900">Top drivers (missing)</p>
                       </div>
+
                       {explainStatus === "loading" ? (
                         <div className="mt-3 space-y-2">
                           <div className="h-3 w-11/12 rounded-full bg-gray-100" />
@@ -432,9 +622,7 @@ export default function SuccessScore() {
                       ) : (
                         <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-gray-700">
                           {(safeArray(drivers?.topMissing).length ? drivers.topMissing : missingSkills.slice(0, 3)).map(
-                            (s, idx) => (
-                              <li key={`tx-${idx}`}>{s}</li>
-                            )
+                            (s, idx) => <li key={`tx-${idx}`}>{s}</li>
                           )}
                         </ul>
                       )}
@@ -481,9 +669,7 @@ export default function SuccessScore() {
                         ))}
 
                         {!actions.length && (
-                          <p className="text-sm text-gray-600">
-                            No actions available. Try regenerating.
-                          </p>
+                          <p className="text-sm text-gray-600">No actions available. Try regenerating.</p>
                         )}
                       </div>
                     )}
@@ -503,85 +689,78 @@ export default function SuccessScore() {
               </div>
             </div>
 
-            {/* 下面的内容保持你原来的（Insights / Improvements） */}
-            <div className="mt-10">
-              <div className="flex items-start gap-3">
-                <span className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                  🔎
-                </span>
-
-                <div>
-                  <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
-                    AI Resume Insights <span className="text-gray-400 font-medium"> · Why this matters</span>
-                  </h2>
-
-                  <p className="mt-1 text-sm text-gray-500">
-                    Key strengths and gaps identified from your resume and the job description.
-                  </p>
+            {/* Insights */}
+            <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+              <div className="mt-10">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                    🔎
+                  </span>
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
+                      AI Resume Insights <span className="text-gray-400 font-medium"> · Why this matters</span>
+                    </h2>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Key strengths and gaps identified from your resume and the job description.
+                    </p>
+                  </div>
                 </div>
+                <div className="mt-6 h-px w-full bg-gray-200" />
               </div>
 
-              <div className="mt-6 h-px w-full bg-gray-200" />
-            </div>
-
-            <div className="mt-8">
-              <h3 className="text-xl font-medium text-gray-900">- What You’re Doing Well</h3>
-              {doingWell.length ? (
-                <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
-                  {doingWell.map((t, idx) => (
-                    <li key={`dw-${idx}`}>{t}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 text-sm text-gray-500">No insights available.</p>
-              )}
-            </div>
-
-            <div className="mt-10">
-              <h3 className="text-xl font-medium text-gray-900">- Where Your Resume Falls Short</h3>
-              {fallsShort.length ? (
-                <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
-                  {fallsShort.map((t, idx) => (
-                    <li key={`fs-${idx}`}>{t}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 text-sm text-gray-500">No gaps detected.</p>
-              )}
-            </div>
-
-            <div className="mt-12">
-              <div className="flex items-start gap-3">
-                <span className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                  ✨
-                </span>
-
-                <div>
-                  <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
-                    How to Improve Your Resume <span className="text-gray-400 font-medium"> · For this role</span>
-                  </h2>
-
-                  <p className="mt-1 text-sm text-gray-500">
-                    Actionable suggestions to increase your match score and resume strength.
-                  </p>
-                </div>
+              <div className="mt-8">
+                <h3 className="text-xl font-medium text-gray-900">- What You’re Doing Well</h3>
+                {doingWell.length ? (
+                  <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
+                    {doingWell.map((t, idx) => <li key={`dw-${idx}`}>{t}</li>)}
+                  </ul>
+                ) : (
+                  <p className="mt-3 text-sm text-gray-500">No insights available.</p>
+                )}
               </div>
 
-              <div className="mt-6 h-px w-full bg-gray-200" />
+              <div className="mt-10">
+                <h3 className="text-xl font-medium text-gray-900">- Where Your Resume Falls Short</h3>
+                {fallsShort.length ? (
+                  <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
+                    {fallsShort.map((t, idx) => <li key={`fs-${idx}`}>{t}</li>)}
+                  </ul>
+                ) : (
+                  <p className="mt-3 text-sm text-gray-500">No gaps detected.</p>
+                )}
+              </div>
             </div>
 
-            <div className="mt-8">
-              <h3 className="text-xl font-medium text-gray-900">- Recommended Improvements</h3>
+            {/* Improvements */}
 
-              {improvements.length ? (
-                <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
-                  {improvements.map((t, idx) => (
-                    <li key={`im-${idx}`}>{t}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 text-sm text-gray-500">No recommendations available.</p>
-              )}
+            <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+              <div className="mt-12">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                    ✨
+                  </span>
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
+                      How to Improve Your Resume <span className="text-gray-400 font-medium"> · For this role</span>
+                    </h2>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Actionable suggestions to increase your match score and resume strength.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-6 h-px w-full bg-gray-200" />
+              </div>
+
+              <div className="mt-8">
+                <h3 className="text-xl font-medium text-gray-900">- Recommended Improvements</h3>
+                {improvements.length ? (
+                  <ul className="mt-4 list-disc list-inside space-y-2 text-base text-gray-600">
+                    {improvements.map((t, idx) => <li key={`im-${idx}`}>{t}</li>)}
+                  </ul>
+                ) : (
+                  <p className="mt-3 text-sm text-gray-500">No recommendations available.</p>
+                )}
+              </div>
             </div>
 
             <button

@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  BedrockRuntimeClient,
-  ConverseCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 
 import { normalizeText } from "../analyze/normalize";
 import { SKILL_BANK } from "../analyze/skillBank";
@@ -18,7 +15,8 @@ function sleep(ms) {
 }
 function clampText(str = "", maxLen = 12000) {
   if (!str) return "";
-  return str.length > maxLen ? str.slice(0, maxLen) : str;
+  const s = String(str);
+  return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
 function validateInput({ jobDescription, resumeText }) {
   const jd = (jobDescription || "").trim();
@@ -59,14 +57,9 @@ async function extractTextFromPdfArrayBuffer(pdfjsLib, arrayBuffer) {
 
 /* ---------------- Bedrock ---------------- */
 const REGION = (process.env.AWS_REGION || "us-east-1").trim();
-const MODEL_ID = (process.env.BEDROCK_MODEL_ID ||
-  "anthropic.claude-3-haiku-20240307-v1:0").trim();
+const MODEL_ID = (process.env.BEDROCK_MODEL_ID || "anthropic.claude-3-haiku-20240307-v1:0").trim();
 
-const bedrock = new BedrockRuntimeClient({
-  region: REGION,
-  // 在本地用 IAM access key 时，SDK 会自动从 env 里读：
-  // AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
-});
+const bedrock = new BedrockRuntimeClient({ region: REGION });
 
 function buildAiPrompt({ report, resumeText, jobDescription }) {
   const resumeSummary = clampText(resumeText, 1400);
@@ -104,7 +97,6 @@ missingSkills: ${JSON.stringify(missing)}
 }
 
 async function callHaikuAndGetJson({ report, resumeText, jobDescription }) {
-
   console.log("[bedrock] region =", JSON.stringify(REGION));
   console.log("[bedrock] modelId =", JSON.stringify(MODEL_ID));
 
@@ -113,11 +105,7 @@ async function callHaikuAndGetJson({ report, resumeText, jobDescription }) {
   const cmd = new ConverseCommand({
     modelId: MODEL_ID,
     messages: [{ role: "user", content: [{ text: prompt }] }],
-    inferenceConfig: {
-      maxTokens: 650,
-      temperature: 0.3,
-      topP: 0.9,
-    },
+    inferenceConfig: { maxTokens: 650, temperature: 0.3, topP: 0.9 },
   });
 
   const resp = await bedrock.send(cmd);
@@ -180,9 +168,13 @@ export async function POST(req) {
     const simulateRaw = formData.get("simulate");
     const delayMsRaw = formData.get("delayMs");
 
-    const jobDescription = clampText((jobDescriptionRaw || "").toString(), 4000);
-    const simulate = (simulateRaw || "").toString() || undefined;
+    // ✅ 关键：JD 也 normalize（否则技能提取会偏少 → 很容易 100%）
+    const jobDescription = clampText(
+      normalizeText((jobDescriptionRaw || "").toString()),
+      4000
+    );
 
+    const simulate = (simulateRaw || "").toString() || undefined;
     const delayMsParsed = Number(delayMsRaw);
     const delayMs = Number.isFinite(delayMsParsed) ? delayMsParsed : 900;
 
@@ -198,8 +190,8 @@ export async function POST(req) {
         { status: 400 }
       );
     }
-    const isPdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     if (!isPdf) {
       return NextResponse.json(
         { ok: false, error: { code: "PDF_ONLY", message: "Please upload a PDF file." } },
@@ -253,7 +245,20 @@ export async function POST(req) {
     // -------- Phase 4 (rule-based) --------
     const resumeSkills = extractSkills(resumeText, SKILL_BANK);
     const jdSkills = extractSkills(jobDescription, SKILL_BANK);
-    const match = computeMatch(resumeSkills, jdSkills);
+
+    // ✅ 关键：新版 computeMatch 用 object 入参（并且需要 resumeText）
+    const match = computeMatch({
+      resumeSkills,
+      jdSkills,
+      resumeText,
+    });
+
+    // Debug：一眼看出你为什么总是 100 / 85
+    console.log("jdSkills:", jdSkills);
+    console.log("jdSkills length:", jdSkills.length);
+    console.log("resumeSkills length:", resumeSkills.length);
+    console.log("coverage:", match?.coverage, "jobMatchScore:", match?.scores?.jobMatchScore);
+    console.log("strength breakdown meta:", match?.meta);
 
     const phase4Report = buildReport({
       resumeText,
@@ -262,6 +267,12 @@ export async function POST(req) {
       jdSkills,
       match,
     });
+
+    // ✅ 把 score 的 breakdown 存进 report.meta，前端就能解释：为什么是 85
+    phase4Report.meta = {
+      ...(phase4Report.meta || {}),
+      scoreMeta: match?.meta || null,
+    };
 
     // -------- Phase 5 (Bedrock AI) --------
     let finalReport = phase4Report;
