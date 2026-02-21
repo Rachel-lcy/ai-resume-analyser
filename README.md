@@ -143,3 +143,135 @@ evidence(0-20) = heuristics from resume bullets
 ## Phase 8 - Score Breakdown (Explainable AI layer)
 
 - Goal: Explain why a score is given and how to improve it faster.
+- User-Facing View:
+  - Job Match Score
+  - Resume Strength Score
+  - Skill Coverage %
+  - Top Matched Skills
+  - Top Missing Skills
+  - Improvements Suggestions
+- Recruiter/ Enterprise View:
+  - Inputs used:
+    - matched skill count
+    - JD skill count
+    - resume skill breadth
+  - Formula breakdown
+    -Component scores:
+    - Breadth
+    - Relevance
+    - Evidence
+  - Heuristic explanation
+- Impact: this converts the system from a "resume score" into an explainable decision-support tool.
+
+## Phase 9 - AI Depth Enhancements (Planned / In progress)
+
+- Goal: Move from a demo-level Ai resume analyzer to a **production-grade, enterprise-ready AI platform** with user identity, personalization, explainable AI, and monetization capabilities.
+
+### 1. User System & Productization
+
+**Objective:**
+
+- Introduce a real product user model to support both individual job seekers and enterprise recruiters.
+
+**Planned Features:**
+
+- user authentication & registration (Individual & Enterprise accounts)
+- Role-based access control(RBAC)
+- User profile management and history tracking
+- Usage quota & credit system (limit AI calls for free users)
+- Subscription tires:
+  - Free (Limited monthly analyses)
+  - Pro (advanced features for individuals)
+  - Enterprise (unlimited usage, batch processing, recruiter tools)
+
+**Product Rationale:**
+
+- Controls AI inference cost
+- Enables personalization of AI insights
+- Establishes a foundation for monetization and real-world deployment
+
+### 2. Explainable & Evidence- Grounded AI
+
+**Objective:**
+
+- Make AI outputs transparent, auditable, and trustworthy for both users and recruiters.
+
+**Planned Enhancements:**
+
+- Evidence-Grounded insights:
+  - Each AI recommendation is linked to specific resume snippets and job description requirements.
+- Traceable reasoning:
+  - Show which skills, phrases, or experiences triggered each insights
+- AI confidence scoring:
+  - Attach a confidence score to each AI-generated insights to mitigate hallucinations
+- Recruiter explain mode:
+  - Expose scoring logic and reasoning for enterprise users.
+
+**Value:**
+
+- Improves trust in AI recommendations
+- Supports explainable AI and auditability
+- Reduces black-box decision making
+
+### 3. Resume Improvement & AI Writing Assistant
+
+**Objective:**
+
+- Transform the system from a passive analyzer into an **active resume optimization tool**
+
+**Planned Enhancements:**
+
+- AI-powered resume bullet rewriting:
+  - Convert raw resume bullets into structured, impact-driven statements(Action + Tool + Result)
+- Quantification suggestions:
+  - Encourage metrics such as performance gains, user impact or efficiency improvements
+- Skill gap remediation:
+  - AI-generated suggestions on how to rewrite existing experience to better match job requirements
+
+**Value:**
+
+- Provides immediate, actionable value to user
+- Help bridge the gap between analysis ans real resume improvements
+- Improve user outcomes and engagement
+
+### 4. Skill Ontology 2.0 & Skill Graph Reasoning
+
+**Objective:**
+
+- Enhance the existing skill ontology into a **structured skill graph** that enable high-level reasoning
+
+**Planned Enhancements:**
+
+- Hierarchical skill relationships:
+  - example: AWS - (S3, Lambda, IAM, CloudFront)
+- Transferable skill reasoning:
+  - Identify adjacent skills (like Node.js - Express.Js - API Design)
+- Dynamic Skill expansion:
+  - Continuously evolve skill ontology based on new job market trends
+
+**Value:**
+
+- Improve matching accuracy
+- Enables more intelligent AI reasoning
+- Makes the system more future-proof
+
+### 5. Role Benchmarking & Industry Baselines
+
+**Objective:**
+
+- Provide industry-aware benchmarking rather than isolated JD comparison.
+
+**Planned Enhancements:**
+
+- Hierarchical skill relationships:
+  - example: AWS - (S3, Lambda, IAM, CloudFront)
+- Transferable skill reasoning:
+  - Identify adjacent skills (like Node.js - Express.Js - API Design)
+- Dynamic Skill expansion:
+  - Continuously evolve skill ontology based on new job market trends
+
+**Value:**
+
+- Improve matching accuracy
+- Enables more intelligent AI reasoning
+- Makes the system more future-proof
