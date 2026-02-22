@@ -244,7 +244,6 @@ function normalizeAiJson(aiJson, fallbackData) {
       jdCount: Number(b.jdCount ?? fb.breakdown.jdCount) || fb.breakdown.jdCount,
       formula: String(b.formula || fb.breakdown.formula),
 
-      // ✅ 关键：别再丢掉这些字段
       resumeStrengthScore:
         Number(b.resumeStrengthScore ?? fb.breakdown.resumeStrengthScore) || fb.breakdown.resumeStrengthScore,
       resumeSkillCount:

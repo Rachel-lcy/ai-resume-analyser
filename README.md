@@ -2,6 +2,10 @@
 
 - An AI-powered resume analysis platform that evaluates how well a resume matches a specific job description, explains the scoring logic, and provided actionable & AI-generated improvements suggestions.Built with Next.js, AWS bedrock(Claude 3 Haiku), and a transparent scoring system with explainable AI outputs(just open for company).
 
+# Architecture Overview
+
+# Project Structure
+
 # Goals
 
 - 1.Help candidates understand why their resume matches or does not match a role
@@ -24,14 +28,23 @@
 - Product-style PDF report export
 - Transparent scoring breakdown (auditable for recruiters)
 
-# Tech Stack
+# Tech Stack & Design Rationale
 
-- Frontend: Next.js(App router), Tailwind CSS
+## Tech Stack
+
+- Frontend: Next.js, Tailwind CSS
 - Backend: Next.js API routes(Node runtime)
 - AI: AWS Bedrock (Claude 3 Haiku)
 - Cloud: AWS bedrock Runtime SDK
 - Data: JSON-based scoring + explainable breakdown
 - Tools: AWS SDK, Pdfkit(PDF report generation),customer Inter fonts for PDF rendering
+
+## Design Rationale
+
+- Next.js (App router): enable full-stack architecture with frontend + API routes in a single codebase, suitable for repaid prototyping and production MVP.
+- AWS Bedrock (Claude 3 Haiku): Chosen for low latency and cost-efficient LLM inference suitable for high-frequency resume analysis use cases.
+- Rule-based + Heuristic Scoring: Ensure deterministic, auditable outputs for enterprise trust and explainable AI requirements.
+- PDFkit: Enable generation of shareable product-style reports.
 
 # Project Phases
 
@@ -96,6 +109,15 @@ evidence(0-20) = heuristics from resume bullets
   - Metrics(%, ms,users, performance)
   - Project signals(API, full-stack, AWS, Next.js)
 
+### Design Rationale:
+
+- The Job Match Score is intentionally begin at _50 as a baseline_ to avoid overly discouraging low-match candidates and to reflect partial skill transferability.
+- Coverage is weighted heavily to emphasize alignment with _job requirements_ rather than raw skill quantity.
+- Resume Strength Score Combines:
+  - _Breadth_: general skill diversity
+  - _Relevance_: alignment with JD skills
+  - _Evidence_: quality of resume bullets(metrics, action verbs, project signals)
+
 ## Phase 6 - Product-Style PDF Report Export
 
 - Goal: Transform analysis into a shareable product artifact.
@@ -132,13 +154,22 @@ evidence(0-20) = heuristics from resume bullets
 - Ontology Behavior:
   - Any alias match to canonical skill
   - Canonical skills are used in:
-    - Matching
-    - Scoring
-    - AI prompts
-    - Score breakdown
+    - _Matching_
+    - _Scoring_
+    - _AI prompts_
+    - _Score breakdown_
 
 - Why this matters:
   - This is a real NLP engineering step, moving from string matching to structured knowledge representation.
+
+### Why skill ontology instead of naive keyword matching:
+
+- Reduces false negatives caused by naming variations(e.g.,React vs React.js vs ReactJS )
+- Improve recall for skill extraction
+- Create a normalized skill layer that supports:
+  - Scoring consistency
+  - Long-term skill graph expansion
+  - Transferable skill reasoning (Phase 9)
 
 ## Phase 8 - Score Breakdown (Explainable AI layer)
 
@@ -162,6 +193,31 @@ evidence(0-20) = heuristics from resume bullets
     - Evidence
   - Heuristic explanation
 - Impact: this converts the system from a "resume score" into an explainable decision-support tool.
+
+### Example Explainable Outputs:
+
+- Job Match Score: 75
+- Resume Strength Score: 84
+- Coverage: 0.5
+
+- Matched Skills(Top 3 shown):
+  - React
+  - Next.js
+  - Aws
+- Missing Skills(Top 3 shown):
+  - Docker
+  - CI/CD
+
+#### Explanation:
+
+- _JobMatchScore_ = 50+ coverage \* 50 = 50 + 0.5 \* 50= 50 + 28 = 75
+- _ResumeStrengthScore_ = base(30) + breadth + relevance + evidence = 30 + 24 + 12 + 18 = 84
+  - Breadth: + 24 (12 unique resume skills × 2)
+    - Overall Skill diversity in resume
+  - Relevance: + 12 (6 matched JD skills × 2)
+    - How many resume skills directly align with JD requirements
+  - Evidence: + 18
+    - The presence of quantified impact, action verbs, and project signals
 
 ## Phase 9 - AI Depth Enhancements (Planned / In progress)
 
@@ -263,15 +319,83 @@ evidence(0-20) = heuristics from resume bullets
 
 **Planned Enhancements:**
 
-- Hierarchical skill relationships:
-  - example: AWS - (S3, Lambda, IAM, CloudFront)
-- Transferable skill reasoning:
-  - Identify adjacent skills (like Node.js - Express.Js - API Design)
-- Dynamic Skill expansion:
-  - Continuously evolve skill ontology based on new job market trends
+- Role types:
+  - example: Frontend Engineer, Backend Engineer, Full-stack Engineer, Data Engineer, AI Developer, etc.
+- Industry skill baseline:
+  - Compare user profile against role benchmarks, not just a single JD
+- Gap analysis VS market standard:
+  - Highlight missing skills relative to industry expectations
 
 **Value:**
 
-- Improve matching accuracy
-- Enables more intelligent AI reasoning
-- Makes the system more future-proof
+- Positioning the product as a **career planning and skill development platform**
+- Add long-term user value beyond single job applications
+
+### 6. Enterprise AI features
+
+**Objective:**
+
+- Provide recruiter-grade AI decision support tools.
+
+**Planned Enhancements:**
+
+- Batch resume screening:
+  - Analyze and rank multiple candidates for the same role.
+- Candidate comparison dashboard:
+  - Side-by-side comparison of match scores, strengths, and gaps
+- Recruiter scoring view:
+  - Detailed breakdown of how each candidate score was computed
+- Hiring insights:
+  - Identify skill distribution trends across candidate pools
+
+**Value:**
+
+- Enable enterprise adoption
+- Support real-world hiring workflows
+- Create clear differentiation from consumer-only resume tool
+
+### 7. AI Governance, Safety and Cost control
+
+**Objective:**
+
+- Ensure the AI system is reliable, cost-aware, and production-ready
+
+**Planned Enhancements:**
+
+- Rate limiting & Usage monitoring for AI API calls
+- Model usage analytics and cost tracking
+- Logging & observability for AI outputs
+- Safeguard against prompt injection and misuse
+
+**Value:**
+
+- Enable scalable deployment
+- Reduce operational risk
+- Aligns with best practices for production AI systems
+
+**Phase 9 Outcome**
+
+- By completing phase 9, the project evolves from a portfolio demo into a **product-oriented, explainable AI system** that capable of supporting both individual users and enterprise recruitment workflows, with a clear path toward real-world commercialization ans AI system maturity.
+
+---
+
+# AI limitations and Risk Mitigation
+
+- LLM outputs may contain hallucinations
+- All AI insights are treated as assistive recommendations, not hiring decisions
+- Rule-based scoring and heuristic signals remain the primary source of truth for final match scores.
+- Future iterations may include confidence scoring and human-in-the-loop review for critical decisions.
+
+# Privacy & Data Handling
+
+- Resume content is processed in-memory and not stored permanently
+- No user resumes are used for model training or fine-tuning.
+- The system is designed with data minimization principles inspired by GDPR-style(General Data Protection Regulation) privacy guidelines.
+- Future production deployment would include user consent management and data retention policies.
+
+# Who is project for:
+
+- Job Seekers who want transparent feedback on resume-JD alignment
+- Recruiter who require auditable and explainable screening tools
+- Engineering teams building AI-powered decision-support systems
+- Product teams exploring explainable AI in hiring workflows
