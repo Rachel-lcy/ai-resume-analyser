@@ -168,7 +168,7 @@ export async function POST(req) {
     const simulateRaw = formData.get("simulate");
     const delayMsRaw = formData.get("delayMs");
 
-    // ✅ 关键：JD 也 normalize（否则技能提取会偏少 → 很容易 100%）
+    // 关键：JD 也 normalize（否则技能提取会偏少 → 很容易 100%）
     const jobDescription = clampText(
       normalizeText((jobDescriptionRaw || "").toString()),
       4000
@@ -246,14 +246,14 @@ export async function POST(req) {
     const resumeSkills = extractSkills(resumeText, SKILL_BANK);
     const jdSkills = extractSkills(jobDescription, SKILL_BANK);
 
-    // ✅ 关键：新版 computeMatch 用 object 入参（并且需要 resumeText）
+
     const match = computeMatch({
       resumeSkills,
       jdSkills,
       resumeText,
     });
 
-    // Debug：一眼看出你为什么总是 100 / 85
+    // Debug
     console.log("jdSkills:", jdSkills);
     console.log("jdSkills length:", jdSkills.length);
     console.log("resumeSkills length:", resumeSkills.length);
@@ -268,7 +268,7 @@ export async function POST(req) {
       match,
     });
 
-    // ✅ 把 score 的 breakdown 存进 report.meta，前端就能解释：为什么是 85
+
     phase4Report.meta = {
       ...(phase4Report.meta || {}),
       scoreMeta: match?.meta || null,

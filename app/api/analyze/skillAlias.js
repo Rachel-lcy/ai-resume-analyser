@@ -189,8 +189,6 @@ export const SKILL_ALIASES = {
 
   "TypeScript": [
     "typescript",
-
-    // 常见写法
     "typed javascript",
     "tsconfig",
     "ts-node",

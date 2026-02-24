@@ -1,5 +1,7 @@
 # AI Resume Analyzer
 
+![AI Resume Website](image-1.png)
+
 - An AI-powered resume analysis platform that evaluates how well a resume matches a specific job description, explains the scoring logic, and provided actionable & AI-generated improvements suggestions.Built with Next.js, AWS bedrock(Claude 3 Haiku), and a transparent scoring system with explainable AI outputs(just open for company).
 
 # Architecture Overview

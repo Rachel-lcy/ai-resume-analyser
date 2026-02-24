@@ -10,7 +10,6 @@ function uniq(arr) {
 
 /**
  * Evidence score bucket (0/5/10/15)
- * 目标：不要太容易满分；只看“证据强度信号”的数量
  */
 export function computeEvidenceScore(resumeText = "") {
   const text = String(resumeText || "");
@@ -47,7 +46,7 @@ export function computeEvidenceScore(resumeText = "") {
 }
 
 /**
- * Job Match Score: 50 + coverage*50 （保持你原来）
+ * Job Match Score: 50 + coverage*50
  * Resume Strength Score: 40 + breadth(0~20) + relevance(0~25) + evidence(0~15)
  */
 export function computeMatch({ resumeSkills = [], jdSkills = [], resumeText = "" }) {
@@ -67,11 +66,11 @@ export function computeMatch({ resumeSkills = [], jdSkills = [], resumeText = ""
   // ---------- Resume Strength (more reasonable) ----------
   const base = 40;
 
-  // breadth: 0~20（把“技能数量”压缩到合理权重）
+  // breadth: 0~20
   const resumeSkillCount = rs.length;
   const breadth = Math.round((Math.min(resumeSkillCount, 30) / 30) * 20);
 
-  // relevance: 0~25（真正随 JD 变化：matched/jdCount）
+  // relevance: 0~25
   const jdCount = jd.length || 1;
   const relevance = Math.round((matched.length / jdCount) * 25);
 

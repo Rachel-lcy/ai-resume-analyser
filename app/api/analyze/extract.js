@@ -77,7 +77,7 @@ export function extractSkills(text = "", skillBank = []) {
 
   const aliasMap = normalizeAliasMap(SKILL_ALIASES);
 
-  // 1) 先扫 aliases：命中任何 alias -> 加入 canonical
+  // 1) 先扫 别名 aliases：命中任何 alias -> 加入 canonical
   for (const [canonical, allForms] of Object.entries(aliasMap)) {
     for (const form of allForms) {
       const rx = buildSkillRegex(form);

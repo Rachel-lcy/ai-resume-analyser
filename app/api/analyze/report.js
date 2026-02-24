@@ -19,17 +19,17 @@ export function buildReport({
         : "phase4-rule-based-v1",
     },
 
-    // ✅ 分数
+    // 分数
     scores: match?.scores || { jobMatchScore: 0, resumeStrengthScore: 0 },
 
-    // ✅ 技能结果
+    // 技能结果
     skills: {
       resumeSkills: Array.isArray(resumeSkills) ? resumeSkills : [],
       jdSkills: Array.isArray(jdSkills) ? jdSkills : [],
       matchedSkills: Array.isArray(match?.matched) ? match.matched : [],
       missingSkills: Array.isArray(match?.missing) ? match.missing : [],
       coverage: typeof match?.coverage === "number" ? match.coverage : 0,
-      jdTopSkills, // 给 explain / drivers 用（可选但推荐）
+      jdTopSkills,
     },
 
     // 前端 UI 直接用 report.scoreMeta 就能拿到所有 breakdown

@@ -9,7 +9,7 @@ import Header from "./components/header";
 export default function Home() {
   const router = useRouter();
 
-  // 状态
+
   const [jobDescription, setJobDescription] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [isLoading, setIsLoading] = useState(false);

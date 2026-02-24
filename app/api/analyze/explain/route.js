@@ -20,6 +20,19 @@ function clampWords(text = "", maxWords = 140) {
   return words.slice(0, maxWords).join(" ") + "…";
 }
 
+function isFiniteNumber(x) {
+  const n = Number(x);
+  return Number.isFinite(n);
+}
+
+function toNumberOrNull(x) {
+  return isFiniteNumber(x) ? Number(x) : null;
+}
+
+function toNumberOr(x, fallback) {
+  return isFiniteNumber(x) ? Number(x) : fallback;
+}
+
 function validateInput(payload) {
   const jobMatchScore = Number(payload?.jobMatchScore);
   const resumeStrengthScore = Number(payload?.resumeStrengthScore);
@@ -33,6 +46,12 @@ function validateInput(payload) {
   return { ok: true };
 }
 
+/**
+ * Score breakdown 计算：
+ * - Job Match: 50 + coverage*50
+ * - Strength: 优先使用 analyze 返回的 scoreMeta.breakdown（base+breadth+relevance+evidence）
+ * - 否则降级到老公式（55 + min(resume_skill_count, 20)*2）
+ */
 function computeBreakdown(data) {
   const matched = safeArray(data?.matched);
   const missing = safeArray(data?.missing);
@@ -50,27 +69,70 @@ function computeBreakdown(data) {
       ? Math.round(coverage * 100)
       : (jdCount > 0 ? Math.round((matched.length / jdCount) * 100) : null);
 
-  // ✅ Resume Strength breakdown
-  const resumeSkillCount = Number.isFinite(Number(data?.resumeSkillCount))
-    ? Number(data.resumeSkillCount)
-    : null;
+  // ---------- Strength meta from analyze ----------
+  // scoreMeta: {
+  //   resumeSkillCount, matchedSkillCount, jdCount, evidenceScore,
+  //   breakdown: { base, breadth, relevance, evidence },
+  //   formula: { jobMatch, strength }
+  // }
+  const scoreMeta = data?.scoreMeta ?? null;
+  const metaBreakdown = scoreMeta?.breakdown ?? null;
 
-  const usedCount = resumeSkillCount === null ? null : Math.min(resumeSkillCount, 20);
-  const computedStrength = usedCount === null ? null : Math.min(55 + usedCount * 2, 100);
+  const base = toNumberOrNull(metaBreakdown?.base);
+  const breadth = toNumberOrNull(metaBreakdown?.breadth);
+  const relevance = toNumberOrNull(metaBreakdown?.relevance);
+  const evidence = toNumberOrNull(metaBreakdown?.evidence);
+
+  const hasNewStrength =
+    base !== null && breadth !== null && relevance !== null && evidence !== null;
+
+  const computedStrengthNew =
+    hasNewStrength ? Math.round(base + breadth + relevance + evidence) : null;
+
+  // ---------- Legacy strength fallback ----------
+  const resumeSkillCountLegacy = toNumberOrNull(data?.resumeSkillCount);
+  const usedCountLegacy = resumeSkillCountLegacy === null ? null : Math.min(resumeSkillCountLegacy, 20);
+  const computedStrengthLegacy =
+    usedCountLegacy === null ? null : Math.min(55 + usedCountLegacy * 2, 100);
+
+  const strengthFormula =
+    (typeof scoreMeta?.formula?.strength === "string" && scoreMeta.formula.strength.trim())
+      ? scoreMeta.formula.strength.trim()
+      : (hasNewStrength
+          ? "40 (base) + breadth(0~20) + relevance(0~25) + evidence(0/5/10/15)"
+          : "Resume Strength Score = 55 + min(resume_skill_count, 20)*2");
+
+  const jobMatchFormula =
+    (typeof scoreMeta?.formula?.jobMatch === "string" && scoreMeta.formula.jobMatch.trim())
+      ? scoreMeta.formula.jobMatch.trim()
+      : "Job Match Score = 50 + coverage*50 (coverage = matched_jd_skills / total_jd_skills)";
 
   return {
-    jobMatchScore: Number(data?.jobMatchScore) || 0,
-    resumeStrengthScore: Number(data?.resumeStrengthScore) || 0,
+    // Scores (input)
+    jobMatchScore: toNumberOr(data?.jobMatchScore, 0),
+    resumeStrengthScore: toNumberOr(data?.resumeStrengthScore, 0),
+
+    // Coverage
     coveragePct,
     matchedCount: matched.length,
     jdCount,
-    formula: "Job Match Score = 50 + coverage*50 (coverage = matched_jd_skills / total_jd_skills)",
 
-    resumeSkillCount,
+    // Formulas
+    formula: jobMatchFormula,
+    strengthFormula,
+
+    // New strength details (preferred)
+    strengthParts: hasNewStrength ? { base, breadth, relevance, evidence } : null,
+    computedStrength: hasNewStrength ? computedStrengthNew : computedStrengthLegacy,
+
+    // Helpful meta
+    resumeSkillCount:
+      toNumberOrNull(scoreMeta?.resumeSkillCount) ??
+      resumeSkillCountLegacy ??
+      null,
+
     strengthCap: 20,
-    usedCount,
-    computedStrength,
-    strengthFormula: "Resume Strength Score = 55 + min(resume_skill_count, 20)*2",
+    usedCount: hasNewStrength ? null : usedCountLegacy,
   };
 }
 
@@ -80,7 +142,6 @@ function buildFallbackExplain(data) {
   const jdTopSkills = safeArray(data?.jdTopSkills);
 
   const breakdown = computeBreakdown(data);
-  const scoreMeta = report?.scoreMeta ?? null;
 
 
   const topMatched = clampArray(matched, 3);
@@ -118,6 +179,8 @@ function buildFallbackExplain(data) {
       usedCount: breakdown.usedCount,
       computedStrength: breakdown.computedStrength,
       strengthFormula: breakdown.strengthFormula,
+
+      strengthParts: breakdown.strengthParts,
     },
     drivers: {
       topMatched: topMatched.length ? topMatched : ["Not enough data"],
@@ -133,11 +196,18 @@ function buildPrompt(data) {
   const missing = safeArray(data?.missing);
   const jdTopSkills = safeArray(data?.jdTopSkills);
 
+  const strengthPartsText = breakdown.strengthParts
+    ? `- strengthParts: ${JSON.stringify(breakdown.strengthParts)}`
+    : `- strengthParts: N/A (legacy mode)`;
+
   return `You are explaining a scoring algorithm to a user.
 
 Context:
 - Job Match Score (0-100) = 50 + coverage*50, where coverage = matched_jd_skills / total_jd_skills.
-- Resume Strength Score (0-100) = 55 + min(resume_skill_count, 20)*2.
+- Resume Strength Score (0-100) uses ONE of these:
+  (A) New formula (preferred): base + breadth + relevance + evidence.
+  (B) Legacy fallback: 55 + min(resume_skill_count, 20)*2.
+Use the provided formula/parts if available and explain clearly.
 
 Input:
 - jobMatchScore: ${breakdown.jobMatchScore}
@@ -149,8 +219,10 @@ Input:
 - missing skills: ${missing.join(", ") || "N/A"}
 - top job skills: ${jdTopSkills.join(", ") || "N/A"}
 - resumeSkillCount: ${breakdown.resumeSkillCount ?? "N/A"}
-- usedCount (cap at 20): ${breakdown.usedCount ?? "N/A"}
+${strengthPartsText}
 - computedStrength (from formula): ${breakdown.computedStrength ?? "N/A"}
+- jobMatch formula: ${breakdown.formula}
+- strength formula: ${breakdown.strengthFormula}
 
 Return STRICT JSON only with keys:
 {
@@ -163,9 +235,10 @@ Return STRICT JSON only with keys:
 
     "resumeStrengthScore": number,
     "resumeSkillCount": number,
-    "usedCount": number,
-    "computedStrength": number,
-    "strengthFormula": string
+    "usedCount": number | null,
+    "computedStrength": number | null,
+    "strengthFormula": string,
+    "strengthParts": { "base": number, "breadth": number, "relevance": number, "evidence": number } | null
   },
   "drivers": { "topMatched": string[], "topMissing": string[] },
   "actions": [ { "title": string, "why": string, "impact": string } ]
@@ -238,21 +311,29 @@ function normalizeAiJson(aiJson, fallbackData) {
 
   const out = {
     breakdown: {
-      jobMatchScore: Number(b.jobMatchScore ?? fb.breakdown.jobMatchScore) || fb.breakdown.jobMatchScore,
-      coveragePct: Number(b.coveragePct ?? fb.breakdown.coveragePct) || fb.breakdown.coveragePct,
-      matchedCount: Number(b.matchedCount ?? fb.breakdown.matchedCount) || fb.breakdown.matchedCount,
-      jdCount: Number(b.jdCount ?? fb.breakdown.jdCount) || fb.breakdown.jdCount,
+      jobMatchScore: toNumberOr(b.jobMatchScore, fb.breakdown.jobMatchScore),
+      coveragePct: toNumberOr(b.coveragePct, fb.breakdown.coveragePct),
+      matchedCount: toNumberOr(b.matchedCount, fb.breakdown.matchedCount),
+      jdCount: toNumberOr(b.jdCount, fb.breakdown.jdCount),
       formula: String(b.formula || fb.breakdown.formula),
 
-      resumeStrengthScore:
-        Number(b.resumeStrengthScore ?? fb.breakdown.resumeStrengthScore) || fb.breakdown.resumeStrengthScore,
+      resumeStrengthScore: toNumberOr(b.resumeStrengthScore, fb.breakdown.resumeStrengthScore),
       resumeSkillCount:
-        Number.isFinite(Number(b.resumeSkillCount)) ? Number(b.resumeSkillCount) : fb.breakdown.resumeSkillCount,
+        isFiniteNumber(b.resumeSkillCount) ? Number(b.resumeSkillCount) : fb.breakdown.resumeSkillCount,
       usedCount:
-        Number.isFinite(Number(b.usedCount)) ? Number(b.usedCount) : fb.breakdown.usedCount,
+        (b.usedCount === null || b.usedCount === undefined)
+          ? fb.breakdown.usedCount
+          : (isFiniteNumber(b.usedCount) ? Number(b.usedCount) : fb.breakdown.usedCount),
       computedStrength:
-        Number.isFinite(Number(b.computedStrength)) ? Number(b.computedStrength) : fb.breakdown.computedStrength,
+        (b.computedStrength === null || b.computedStrength === undefined)
+          ? fb.breakdown.computedStrength
+          : (isFiniteNumber(b.computedStrength) ? Number(b.computedStrength) : fb.breakdown.computedStrength),
       strengthFormula: String(b.strengthFormula || fb.breakdown.strengthFormula),
+
+      strengthParts:
+        b.strengthParts && typeof b.strengthParts === "object"
+          ? b.strengthParts
+          : fb.breakdown.strengthParts ?? null,
     },
     drivers: {
       topMatched: clampArray(d.topMatched || fb.drivers.topMatched, 3),
@@ -273,7 +354,7 @@ function normalizeAiJson(aiJson, fallbackData) {
  * -------------------------- */
 export async function POST(req) {
   try {
-    // ✅ 防止 “Unexpected end of JSON input”
+
     const rawText = await req.text();
     if (!rawText) {
       return NextResponse.json({ error: "Empty request body." }, { status: 400 });
@@ -282,7 +363,8 @@ export async function POST(req) {
     let data = null;
     try {
       data = JSON.parse(rawText);
-    } catch {
+    } catch (e) {
+      console.error("[explain] invalid json body:", e);
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
 
@@ -296,12 +378,15 @@ export async function POST(req) {
       const text = await callBedrockClaude(prompt);
       const aiJson = tryParseJsonStrict(text);
       finalJson = normalizeAiJson(aiJson, data);
-    } catch {
+    } catch (e) {
+
+      console.error("[explain] bedrock/parse failed, using fallback:", e);
       finalJson = buildFallbackExplain(data);
     }
 
     return NextResponse.json(finalJson);
   } catch (err) {
+    console.error("[explain] server error:", err);
     return NextResponse.json({ error: err?.message || "Server error" }, { status: 500 });
   }
 }
