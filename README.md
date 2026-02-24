@@ -4,7 +4,38 @@
 
 # Architecture Overview
 
+## Architecture Overview
+
+High-level system architecture:
+
+User (Browser)
+↓
+Next.js Frontend (App Router)
+↓
+API Routes (Node Runtime)
+├─ PDF Text Extraction (pdf-parse / pdfjs)
+├─ Text Normalization Pipeline
+├─ Skill Ontology + Matching Engine
+├─ Explainable Scoring Engine
+└─ AWS Bedrock (Claude 3 Haiku)
+↓
+AI Insights & Improvement Suggestions
+↓
+PDF Report Generator (PDFKit)
+↓
+Frontend Visualization & Download
+
+![Architecture Overview](image.png)
+
 # Project Structure
+
+app/
+api/
+analyze/ # Resume analysis pipeline (extract → normalize → match → score → AI)
+report/pdf/ # PDF report export
+components/ # UI components
+pages/ # Product pages (generate-score, success-score, fail-score)
+assets/fonts/ # Custom fonts for PDF rendering
 
 # Goals
 
