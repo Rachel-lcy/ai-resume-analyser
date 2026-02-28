@@ -53,7 +53,7 @@ export function computeMatch({ resumeSkills = [], jdSkills = [], resumeText = ""
   const jd = uniq(jdSkills);
   const rs = uniq(resumeSkills);
 
-  const jdSet = new Set(jd);
+  // const jdSet = new Set(jd);
   const rsSet = new Set(rs);
 
   const matched = jd.filter((s) => rsSet.has(s));

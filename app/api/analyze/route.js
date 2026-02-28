@@ -3,6 +3,7 @@ import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-r
 
 import { normalizeText } from "../analyze/normalize";
 import { SKILL_BANK } from "../analyze/skillBank";
+import { SKILL_ALIASES } from "../analyze/skillAlias";
 import { extractSkills } from "../analyze/extract";
 import { computeMatch } from "../analyze/score";
 import { buildReport } from "../analyze/report";
@@ -165,18 +166,13 @@ export async function POST(req) {
     const formData = await req.formData();
     const file = formData.get("resume");
     const jobDescriptionRaw = formData.get("jobDescription");
-    const simulateRaw = formData.get("simulate");
-    const delayMsRaw = formData.get("delayMs");
+
 
     // 关键：JD 也 normalize（否则技能提取会偏少 → 很容易 100%）
     const jobDescription = clampText(
       normalizeText((jobDescriptionRaw || "").toString()),
       4000
     );
-
-    const simulate = (simulateRaw || "").toString() || undefined;
-    const delayMsParsed = Number(delayMsRaw);
-    const delayMs = Number.isFinite(delayMsParsed) ? delayMsParsed : 900;
 
     if (!file) {
       return NextResponse.json(
@@ -199,7 +195,6 @@ export async function POST(req) {
       );
     }
 
-    await sleep(delayMs);
 
     let resumeText = "";
     try {
@@ -219,7 +214,7 @@ export async function POST(req) {
         { status: 422 }
       );
     }
-
+    console.log("resumeText:", resumeText);
     const validation = validateInput({ jobDescription, resumeText });
     if (!validation.ok) {
       return NextResponse.json(
@@ -245,7 +240,6 @@ export async function POST(req) {
     // -------- Phase 4 (rule-based) --------
     const resumeSkills = extractSkills(resumeText, SKILL_BANK);
     const jdSkills = extractSkills(jobDescription, SKILL_BANK);
-
 
     const match = computeMatch({
       resumeSkills,

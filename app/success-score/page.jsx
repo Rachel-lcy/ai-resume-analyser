@@ -24,7 +24,8 @@ function safeArray(x) {
 }
 
 export default function SuccessScore() {
-  const [status, setStatus] = useState("loading"); // loading | ready | empty | error
+  const [status, setStatus] = useState("loading");
+  // loading | ready | empty | error
   const [report, setReport] = useState(null);
   const [meta, setMeta] = useState(null);
 
@@ -65,7 +66,7 @@ export default function SuccessScore() {
   const missingSkills = useMemo(() => report?.skills?.missingSkills ?? [], [report]);
   const coverage = report?.skills?.coverage;
 
-  // ✅ 从 report.meta.scoreMeta 读取（你后端 route.js 已经写进去）
+  // ✅ 从 report.meta.scoreMeta 读取
   const scoreMeta = report?.meta?.scoreMeta || null;
 
   // 备用：从 report 内估算 skill count（如果 scoreMeta 没有）
@@ -207,15 +208,18 @@ export default function SuccessScore() {
         const err = await res.json().catch(() => null);
         throw new Error(err?.error || "PDF export failed.");
       }
-
+    //blob ≈ 一个临时生成的 resume-report.json 文件
       const blob = await res.blob();
+      //生成临时可访问的本地URL
       const url = URL.createObjectURL(blob);
-
+      //创建<a>超链接
       const a = document.createElement("a");
       a.href = url;
+      //设置下载文件名
       a.download = `resume-report-${report?.meta?.reportId || "report"}.pdf`;
+      //先下载
       a.click();
-
+      //再释放内存
       URL.revokeObjectURL(url);
     } catch (e) {
       alert(e?.message || "PDF export failed.");
@@ -227,7 +231,7 @@ export default function SuccessScore() {
   const drivers = explain?.drivers || null;
   const actions = safeArray(explain?.actions);
 
-  // 旧公式回退展示需要的字段
+
   const derivedResumeSkillCount =
     (typeof breakdown?.resumeSkillCount === "number"
       ? breakdown.resumeSkillCount
@@ -350,7 +354,7 @@ export default function SuccessScore() {
               </div>
             </div>
 
-            {/* ✅ Score Breakdown */}
+            {/* Score Breakdown Section */}
             <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700">
@@ -453,7 +457,7 @@ export default function SuccessScore() {
                     <div className="rounded-xl border border-gray-200 p-4">
                       <p className="text-xs font-semibold text-gray-500">RESUME STRENGTH</p>
 
-                      {/* 大分数 */}
+                      {/* 分数 */}
                       <p className="mt-2 text-3xl font-extrabold text-gray-900">
                         {strength ?? breakdown?.resumeStrengthScore ?? "--"}
                       </p>
@@ -485,7 +489,7 @@ export default function SuccessScore() {
                         </p>
                       )}
 
-  {/* 折叠：详细算法（给企业/招聘者审计） */}
+                      {/* 折叠section：详细算法（给企业/招聘者审计） */}
                       <details className="mt-3 w-full rounded-xl border border-gray-200 bg-white overflow-hidden">
                         <summary className="cursor-pointer select-none text-sm font-semibold text-gray-800 py-2 px-2">
                           View scoring details (for recruiters)
