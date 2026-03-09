@@ -6,7 +6,7 @@
 
 # Architecture Overview
 
-## Architecture Overview
+**Architecture Overview**
 
 High-level system architecture:
 
@@ -29,7 +29,7 @@ Frontend Visualization & Download
 
 ![Architecture Overview](image.png)
 
-# Project Structure
+**Project Structure**
 
 app/
 api/
@@ -79,6 +79,8 @@ assets/fonts/ # Custom fonts for PDF rendering
 - Rule-based + Heuristic Scoring: Ensure deterministic, auditable outputs for enterprise trust and explainable AI requirements.
 - PDFkit: Enable generation of shareable product-style reports.
 
+---
+
 # Project Phases
 
 ## Phase 1- Resume Upload & Text Extraction
@@ -89,6 +91,8 @@ assets/fonts/ # Custom fonts for PDF rendering
   - 2.Server-side PDF text extraction
   - 3.Basic validation + JDinput(empty file, unsupported format)
   - 4.Store extracted text in session for later analysis
+
+---
 
 ## Phase 2 - Text Normalization Pipeline
 
@@ -101,9 +105,13 @@ assets/fonts/ # Custom fonts for PDF rendering
 - why important:
   - Ensure consistent matching and reduced noise for downstream AI & Scoring logic.
 
+---
+
 ## Phase 3 - Skill Bank(Canonical Skills)
 
 - Goal: Create a standardized skill vocabulary used across scoring and AI prompts.
+
+---
 
 ## Phase 4 - Skill Extraction & Matching Engine
 
@@ -117,6 +125,8 @@ assets/fonts/ # Custom fonts for PDF rendering
     - `coverage = matchedJD / totalJD`
 - Why this matters:
   - This layer forms the quantitative foundation for scoring and explainability.
+
+---
 
 ## Phase 5- Explainable Scoring Engine
 
@@ -151,6 +161,8 @@ evidence(0-20) = heuristics from resume bullets
   - _Relevance_: alignment with JD skills
   - _Evidence_: quality of resume bullets(metrics, action verbs, project signals)
 
+---
+
 ## Phase 6 - Product-Style PDF Report Export
 
 - Goal: Transform analysis into a shareable product artifact.
@@ -167,6 +179,8 @@ evidence(0-20) = heuristics from resume bullets
     - JD snippet
 - Value:
   - Turn analysis into something users can submit to recruiters or mentors.
+
+---
 
 ## Phase 7 - Skill Ontology & Synonym Normalization
 
@@ -203,6 +217,8 @@ evidence(0-20) = heuristics from resume bullets
   - Scoring consistency
   - Long-term skill graph expansion
   - Transferable skill reasoning (Phase 9)
+
+---
 
 ## Phase 8 - Score Breakdown (Explainable AI layer)
 
@@ -252,7 +268,115 @@ evidence(0-20) = heuristics from resume bullets
   - Evidence: + 18
     - The presence of quantified impact, action verbs, and project signals
 
-## Phase 9 - AI Depth Enhancements (Planned / In progress)
+---
+
+## Phase 9 - Access-Controlled AI Architecture
+
+- Goal：To protect AWS Bedrock inference costs and prevent public abuse, the live AI analysis feature is protected by a **server-side access control mechanism**.Only users with a valid **demo access code** can trigger the AI-power resume analysis.
+
+### Architecture Diagram
+
+![Access-Controlled AI Analysis Architecture](access-control.png)
+User Browser
+│
+│ Click "Analyze Resume"
+▼
+Access Code Modal
+│
+│ POST /api/access/verify
+▼
+Access Verification API
+│
+│ Validate Access Code
+▼
+Server Creates Secure Cookie
+demo_access = granted
+│
+│
+▼
+User Runs Analysis
+POST /api/analyze
+│
+▼
+Protected API Layer
+(checks cookie)
+│
+├── Invalid → 401 Unauthorized
+│
+▼
+Resume Processing Engine
+(PDF parsing + skill extraction)
+│
+▼
+AI Analysis Service
+AWS Bedrock
+Claude 3 Haiku
+│
+▼
+AI-Enhanced Resume Report
+
+### System Design Explanation
+
+- The system introduces a **demo access gate** before executing the AI pipeline.
+
+**Step 1- Access Verification**
+
+- When the user clicks **Analyze Resume** button, the system prompts for an access code. The code is verified through:
+
+`POST /api/access/verify`
+
+- if the code is valid, the server creates a secure session cookie:
+  `demo_access = granted`
+
+- The cookie is configured with:
+  - httpOnly
+  - sameSite = lax
+  - secure(in production)
+  - expiration time
+
+**Step 2- Protected AI Endpoint**
+
+- The main analysis endpoint is protected:
+  `POST /api/analyze`
+- Before executing the resume analysis pipeline, the server verifies the cookie:
+
+```
+const accessCookie = req.cookies.get("demo-access)?.value;
+if (accessCookie !== "granted"){
+  return NextResponse.json(
+    {
+      ok: false, message: "unauthorized"
+    },
+    {
+      status: 401
+    }
+  )
+}
+```
+
+- if the cookie is missing, the request is rejected and no AI calls is made.
+
+**\*Why This Design Matters**
+
+- This architecture demonstrates several production-level design considerations:
+  **Cost Control**
+- AI inference calls are restricted to authorized users only.
+
+**Security**
+
+- Access Verification is performed server-side using secure cookies.
+
+**Abuse Prevention**
+
+- Unauthorized API calls are blocked before reaching the AI model.
+
+**Real-world Product Thinking**
+
+- The system mimics how real SaaS platforms protect paid AI features.
+
+---
+
+## Phase 10 - AI Depth Enhancements (Planned / In progress)
 
 - Goal: Move from a demo-level Ai resume analyzer to a **production-grade, enterprise-ready AI platform** with user identity, personalization, explainable AI, and monetization capabilities.
 
