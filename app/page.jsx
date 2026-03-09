@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import logo from "../public/icons/upload.png";
 import Header from "./components/header";
+import AccessCodeModal from "./components/AccessCodeModal";
 
 export default function Home() {
   const router = useRouter();
@@ -14,6 +15,9 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState("");
+
+  const [showAccessModal, setShowAccessModal] = useState(false);
+  const [hasAccess, setHasAccess] = useState(false);
 
   // file input
   const fileInputRef = useRef(null);
@@ -245,12 +249,26 @@ export default function Home() {
           {/* Analyze button */}
           <button
             type="button"
-            onClick={handleAnalyze}
             disabled={isLoading}
+            onClick={() => {
+              if (!hasAccess) {
+                setShowAccessModal(true);
+                return;
+              }
+              handleAnalyze();
+            }}
             className="mt-8 rounded-2xl border border-indigo-700 px-5 py-2.5 font-semibold text-indigo-900 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isLoading ? "Analyzing..." : " Analyze Resume"}
           </button>
+          <p style={{ marginTop: "10px", color: "#6b7280", fontSize: "14px" }}>
+            Live AI demo is access-controlled to manage inference costs.
+          </p>
+          <AccessCodeModal
+            open={showAccessModal}
+            onClose={() => setShowAccessModal(false)}
+            onSuccess={() => setHasAccess(true)}
+          />
         </section>
       </div>
     </main>

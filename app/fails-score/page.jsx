@@ -4,7 +4,7 @@ export default function FailsScore(){
   return(
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
-      <Header meta={meta}/>
+      <Header />
         <div className="rounded-xl bg-gray-200 px-8 py-8">
           <p className="text-xl text-gray-700 font-semibold pb-2.5">
             ❌ Score Generation Failed

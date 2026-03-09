@@ -693,7 +693,7 @@ export default function SuccessScore() {
               </div>
             </div>
 
-            {/* Insights */}
+            {/* AI Insights */}
             <div className="mt-8 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
               <div className="mt-10">
                 <div className="flex items-start gap-3">

@@ -157,16 +157,39 @@ function applyAiToPhase4Report(phase4Report, aiJson) {
 /* ---------------- API ---------------- */
 export async function POST(req) {
   try {
+    // ---------------------------
+    // 1) Access control
+    // ---------------------------
+    const accessCookie = req.cookies.get("demo_access")?.value;
+
+    if (accessCookie !== "granted") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "UNAUTHORIZED",
+            message: "Unauthorized. Please enter a valid access code first.",
+          },
+        },
+        { status: 401 }
+      );
+    }
+
+    // ---------------------------
+    // 2) Load PDF parser
+    // ---------------------------
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
     pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
       "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
       import.meta.url
     ).toString();
 
+    // ---------------------------
+    // 3) Read form data
+    // ---------------------------
     const formData = await req.formData();
     const file = formData.get("resume");
     const jobDescriptionRaw = formData.get("jobDescription");
-
 
     // 关键：JD 也 normalize（否则技能提取会偏少 → 很容易 100%）
     const jobDescription = clampText(
@@ -174,29 +197,57 @@ export async function POST(req) {
       4000
     );
 
+    // ---------------------------
+    // 4) Validate file
+    // ---------------------------
     if (!file) {
       return NextResponse.json(
-        { ok: false, error: { code: "FILE_REQUIRED", message: "Resume PDF is required." } },
+        {
+          ok: false,
+          error: {
+            code: "FILE_REQUIRED",
+            message: "Resume PDF is required.",
+          },
+        },
         { status: 400 }
       );
     }
+
     if (typeof file === "string" || !file.name) {
       return NextResponse.json(
-        { ok: false, error: { code: "INVALID_FILE", message: "Invalid file upload." } },
+        {
+          ok: false,
+          error: {
+            code: "INVALID_FILE",
+            message: "Invalid file upload.",
+          },
+        },
         { status: 400 }
       );
     }
 
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const isPdf =
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf");
+
     if (!isPdf) {
       return NextResponse.json(
-        { ok: false, error: { code: "PDF_ONLY", message: "Please upload a PDF file." } },
+        {
+          ok: false,
+          error: {
+            code: "PDF_ONLY",
+            message: "Please upload a PDF file.",
+          },
+        },
         { status: 400 }
       );
     }
 
-
+    // ---------------------------
+    // 5) Extract resume text
+    // ---------------------------
     let resumeText = "";
+
     try {
       const arrayBuffer = await file.arrayBuffer();
       const rawText = await extractTextFromPdfArrayBuffer(pdfjsLib, arrayBuffer);
@@ -214,30 +265,31 @@ export async function POST(req) {
         { status: 422 }
       );
     }
-    console.log("resumeText:", resumeText);
-    const validation = validateInput({ jobDescription, resumeText });
-    if (!validation.ok) {
-      return NextResponse.json(
-        { ok: false, error: { code: "VALIDATION_ERROR", message: validation.message } },
-        { status: 400 }
-      );
-    }
 
-    const shouldFail = simulate === "fail" ? true : simulate === "success" ? false : false;
-    if (shouldFail) {
+    console.log("resumeText:", resumeText);
+
+    // ---------------------------
+    // 6) Validate input
+    // ---------------------------
+    const validation = validateInput({ jobDescription, resumeText });
+    console.log("validation:", validation);
+
+    if (!validation.ok) {
       return NextResponse.json(
         {
           ok: false,
           error: {
-            code: "ANALYSIS_FAILED",
-            message: "We couldn't analyze your resume at this time. Please try again.",
+            code: "VALIDATION_ERROR",
+            message: validation.message,
           },
         },
-        { status: 500 }
+        { status: 400 }
       );
     }
 
-    // -------- Phase 4 (rule-based) --------
+    // ---------------------------
+    // 7) Phase 4 (rule-based)
+    // ---------------------------
     const resumeSkills = extractSkills(resumeText, SKILL_BANK);
     const jdSkills = extractSkills(jobDescription, SKILL_BANK);
 
@@ -251,7 +303,12 @@ export async function POST(req) {
     console.log("jdSkills:", jdSkills);
     console.log("jdSkills length:", jdSkills.length);
     console.log("resumeSkills length:", resumeSkills.length);
-    console.log("coverage:", match?.coverage, "jobMatchScore:", match?.scores?.jobMatchScore);
+    console.log(
+      "coverage:",
+      match?.coverage,
+      "jobMatchScore:",
+      match?.scores?.jobMatchScore
+    );
     console.log("strength breakdown meta:", match?.meta);
 
     const phase4Report = buildReport({
@@ -262,13 +319,14 @@ export async function POST(req) {
       match,
     });
 
-
     phase4Report.meta = {
       ...(phase4Report.meta || {}),
       scoreMeta: match?.meta || null,
     };
 
-    // -------- Phase 5 (Bedrock AI) --------
+    // ---------------------------
+    // 8) Phase 5 (Bedrock AI)
+    // ---------------------------
     let finalReport = phase4Report;
     let aiStatus = "skipped";
     let aiError = null;
@@ -279,6 +337,7 @@ export async function POST(req) {
         resumeText,
         jobDescription,
       });
+
       finalReport = applyAiToPhase4Report(phase4Report, aiJson);
       aiStatus = "ok";
     } catch (e) {
@@ -288,8 +347,20 @@ export async function POST(req) {
       finalReport = phase4Report;
     }
 
+    // ---------------------------
+    // 9) Success response
+    // ---------------------------
     return NextResponse.json(
-      { ok: true, report: finalReport, meta: { aiStatus, aiError, region: REGION, modelId: MODEL_ID } },
+      {
+        ok: true,
+        report: finalReport,
+        meta: {
+          aiStatus,
+          aiError,
+          region: REGION,
+          modelId: MODEL_ID,
+        },
+      },
       { status: 200 }
     );
   } catch (err) {
