@@ -264,7 +264,7 @@ export default function SuccessScore() {
   return (
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-10">
-        <Header meta={meta} />
+        <Header  />
 
         <div className="rounded-lg bg-indigo-800 px-8 py-6 text-base font-semibold text-white">
           {status === "loading" && <p>Generating AI insights…</p>}
