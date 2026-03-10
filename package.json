@@ -12,6 +12,7 @@
     "@aws-sdk/client-bedrock-runtime": "^3.988.0",
     "@napi-rs/canvas": "^0.1.89",
     "next": "16.1.6",
+    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.4.624",
     "pdfkit": "^0.17.2",
     "react": "19.2.3",
