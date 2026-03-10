@@ -1,36 +1,61 @@
 import { NextResponse } from "next/server";
-import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import {
+  BedrockRuntimeClient,
+  ConverseCommand,
+} from "@aws-sdk/client-bedrock-runtime";
+import pdf from "pdf-parse";
 
 import { normalizeText } from "../analyze/normalize";
 import { SKILL_BANK } from "../analyze/skillBank";
-import { SKILL_ALIASES } from "../analyze/skillAlias";
 import { extractSkills } from "../analyze/extract";
 import { computeMatch } from "../analyze/score";
 import { buildReport } from "../analyze/report";
 
 export const runtime = "nodejs";
 
+/* ---------------- Constants ---------------- */
+const REGION = (process.env.AWS_REGION || "us-east-1").trim();
+const MODEL_ID = (
+  process.env.BEDROCK_MODEL_ID || "anthropic.claude-3-haiku-20240307-v1:0"
+).trim();
+const MAX_RESUME_TEXT_LEN = 12000;
+const MAX_JOB_DESCRIPTION_LEN = 4000;
+const MAX_RESUME_SUMMARY_LEN = 1400;
+const MAX_JD_SUMMARY_LEN = 1100;
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+
+const bedrock = new BedrockRuntimeClient({ region: REGION });
+
 /* ---------------- Utils ---------------- */
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 function clampText(str = "", maxLen = 12000) {
   if (!str) return "";
   const s = String(str);
   return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
+
 function validateInput({ jobDescription, resumeText }) {
   const jd = (jobDescription || "").trim();
   const rt = (resumeText || "").trim();
-  if (!jd) return { ok: false, message: "Job description is required." };
-  if (!rt) return { ok: false, message: "Unable to extract text from the PDF." };
+
+  if (!jd) {
+    return { ok: false, message: "Job description is required." };
+  }
+
+  if (!rt) {
+    return { ok: false, message: "Unable to extract text from the PDF." };
+  }
+
   return { ok: true };
 }
+
 function extractJsonFromText(text = "") {
   if (typeof text !== "string") return null;
+
   const first = text.indexOf("{");
   const last = text.lastIndexOf("}");
+
   if (first === -1 || last === -1 || last <= first) return null;
+
   try {
     return JSON.parse(text.slice(first, last + 1));
   } catch {
@@ -38,33 +63,17 @@ function extractJsonFromText(text = "") {
   }
 }
 
-/* ---------------- PDF legacy ---------------- */
-async function extractTextFromPdfArrayBuffer(pdfjsLib, arrayBuffer) {
-  const uint8 = new Uint8Array(arrayBuffer);
-  const loadingTask = pdfjsLib.getDocument({ data: uint8, disableWorker: true });
-  const pdf = await loadingTask.promise;
-
-  let extracted = "";
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item) => (typeof item?.str === "string" ? item.str : ""))
-      .join(" ");
-    extracted += pageText + "\n";
-  }
-  return extracted;
+/* ---------------- PDF ---------------- */
+async function extractTextFromPdfArrayBuffer(arrayBuffer) {
+  const buffer = Buffer.from(arrayBuffer);
+  const data = await pdf(buffer);
+  return data?.text || "";
 }
 
 /* ---------------- Bedrock ---------------- */
-const REGION = (process.env.AWS_REGION || "us-east-1").trim();
-const MODEL_ID = (process.env.BEDROCK_MODEL_ID || "anthropic.claude-3-haiku-20240307-v1:0").trim();
-
-const bedrock = new BedrockRuntimeClient({ region: REGION });
-
 function buildAiPrompt({ report, resumeText, jobDescription }) {
-  const resumeSummary = clampText(resumeText, 1400);
-  const jdSummary = clampText(jobDescription, 1100);
+  const resumeSummary = clampText(resumeText, MAX_RESUME_SUMMARY_LEN);
+  const jdSummary = clampText(jobDescription, MAX_JD_SUMMARY_LEN);
 
   const matched = report?.skills?.matchedSkills ?? [];
   const missing = report?.skills?.missingSkills ?? [];
@@ -106,7 +115,11 @@ async function callHaikuAndGetJson({ report, resumeText, jobDescription }) {
   const cmd = new ConverseCommand({
     modelId: MODEL_ID,
     messages: [{ role: "user", content: [{ text: prompt }] }],
-    inferenceConfig: { maxTokens: 650, temperature: 0.3, topP: 0.9 },
+    inferenceConfig: {
+      maxTokens: 650,
+      temperature: 0.3,
+      topP: 0.9,
+    },
   });
 
   const resp = await bedrock.send(cmd);
@@ -129,7 +142,9 @@ function applyAiToPhase4Report(phase4Report, aiJson) {
 
   next.meta = {
     ...next.meta,
-    model: aiJson ? "phase5-bedrock-haiku + phase4-rule-based-v1" : next.meta?.model,
+    model: aiJson
+      ? "phase5-bedrock-haiku + phase4-rule-based-v1"
+      : next.meta?.model,
   };
 
   if (aiJson?.insights?.doingWell && aiJson?.insights?.fallsShort) {
@@ -157,9 +172,7 @@ function applyAiToPhase4Report(phase4Report, aiJson) {
 /* ---------------- API ---------------- */
 export async function POST(req) {
   try {
-    // ---------------------------
     // 1) Access control
-    // ---------------------------
     const accessCookie = req.cookies.get("demo_access")?.value;
 
     if (accessCookie !== "granted") {
@@ -175,31 +188,17 @@ export async function POST(req) {
       );
     }
 
-    // ---------------------------
-    // 2) Load PDF parser
-    // ---------------------------
-    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
-      import.meta.url
-    ).toString();
-
-    // ---------------------------
-    // 3) Read form data
-    // ---------------------------
+    // 2) Read form data
     const formData = await req.formData();
     const file = formData.get("resume");
     const jobDescriptionRaw = formData.get("jobDescription");
 
-    // 关键：JD 也 normalize（否则技能提取会偏少 → 很容易 100%）
     const jobDescription = clampText(
       normalizeText((jobDescriptionRaw || "").toString()),
-      4000
+      MAX_JOB_DESCRIPTION_LEN
     );
 
-    // ---------------------------
-    // 4) Validate file
-    // ---------------------------
+    // 3) Validate file
     if (!file) {
       return NextResponse.json(
         {
@@ -243,15 +242,29 @@ export async function POST(req) {
       );
     }
 
-    // ---------------------------
-    // 5) Extract resume text
-    // ---------------------------
+    if (typeof file.size === "number" && file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "FILE_TOO_LARGE",
+            message: "Please upload a PDF smaller than 5MB.",
+          },
+        },
+        { status: 413 }
+      );
+    }
+
+    // 4) Extract resume text
     let resumeText = "";
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const rawText = await extractTextFromPdfArrayBuffer(pdfjsLib, arrayBuffer);
-      resumeText = clampText(normalizeText(rawText || ""), 12000);
+      const rawText = await extractTextFromPdfArrayBuffer(arrayBuffer);
+      resumeText = clampText(
+        normalizeText(rawText || ""),
+        MAX_RESUME_TEXT_LEN
+      );
     } catch (e) {
       return NextResponse.json(
         {
@@ -268,9 +281,7 @@ export async function POST(req) {
 
     console.log("resumeText:", resumeText);
 
-    // ---------------------------
-    // 6) Validate input
-    // ---------------------------
+    // 5) Validate input
     const validation = validateInput({ jobDescription, resumeText });
     console.log("validation:", validation);
 
@@ -287,9 +298,7 @@ export async function POST(req) {
       );
     }
 
-    // ---------------------------
-    // 7) Phase 4 (rule-based)
-    // ---------------------------
+    // 6) Phase 4 (rule-based)
     const resumeSkills = extractSkills(resumeText, SKILL_BANK);
     const jdSkills = extractSkills(jobDescription, SKILL_BANK);
 
@@ -299,7 +308,6 @@ export async function POST(req) {
       resumeText,
     });
 
-    // Debug
     console.log("jdSkills:", jdSkills);
     console.log("jdSkills length:", jdSkills.length);
     console.log("resumeSkills length:", resumeSkills.length);
@@ -324,9 +332,7 @@ export async function POST(req) {
       scoreMeta: match?.meta || null,
     };
 
-    // ---------------------------
-    // 8) Phase 5 (Bedrock AI)
-    // ---------------------------
+    // 7) Phase 5 (Bedrock AI)
     let finalReport = phase4Report;
     let aiStatus = "skipped";
     let aiError = null;
@@ -347,9 +353,7 @@ export async function POST(req) {
       finalReport = phase4Report;
     }
 
-    // ---------------------------
-    // 9) Success response
-    // ---------------------------
+    // 8) Success response
     return NextResponse.json(
       {
         ok: true,
