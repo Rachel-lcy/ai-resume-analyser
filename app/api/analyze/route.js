@@ -3,7 +3,7 @@ import {
   BedrockRuntimeClient,
   ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import pdf from "pdf-parse";
+// import pdfParse from "pdf-parse";
 
 import { normalizeText } from "../analyze/normalize";
 import { SKILL_BANK } from "../analyze/skillBank";
@@ -65,9 +65,30 @@ function extractJsonFromText(text = "") {
 
 /* ---------------- PDF ---------------- */
 async function extractTextFromPdfArrayBuffer(arrayBuffer) {
-  const buffer = Buffer.from(arrayBuffer);
-  const data = await pdf(buffer);
-  return data?.text || "";
+
+  // const buffer = Buffer.from(arrayBuffer);
+  // const data = await pdf(buffer);
+  // return data?.text || "";
+  try {
+    const pdfParse = require("pdf-parse");
+
+    const buffer = Buffer.from(arrayBuffer);
+    const data = await pdfParse(buffer);
+
+    console.log("PDF pages:", data?.numpages);
+    console.log("PDF text length:", data?.text?.length || 0);
+
+    if (!data?.text || data.text.trim().length < 20) {
+      throw new Error("PDF contains no extractable text.");
+    }
+
+    return data?.text || "";
+  } catch (error) {
+    console.error("pdf-parse error:", error);
+    throw error;
+  }
+
+
 }
 
 /* ---------------- Bedrock ---------------- */
